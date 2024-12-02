@@ -10,7 +10,7 @@ from ..dataset.types import BatchedExample
 from ..misc.nn_module_tools import convert_to_buffer
 from ..model.decoder.decoder import DecoderOutput
 from ..model.types import Gaussians
-from .loss import AddLoss
+from .loss import SmoothLoss
 
 
 @dataclass
@@ -22,7 +22,7 @@ class LossSmoothCfgWrapper:
     smooth: LossSmoothCfg
 
 
-class LossFlow(AddLoss[LossSmoothCfg, LossSmoothCfgWrapper]):
+class LossFlow(SmoothLoss[LossSmoothCfg, LossSmoothCfgWrapper]):
 
     def __init__(self, cfg: LossSmoothCfgWrapper):
         super().__init__(cfg)
@@ -33,6 +33,7 @@ class LossFlow(AddLoss[LossSmoothCfg, LossSmoothCfgWrapper]):
         R: list,
         T: list,
     ) -> Float[Tensor, ""]:
+    # 连续地包含所有的t，求和在此处实现
         assert len(R) == len(T)
         I = torch.eyes((R[0].shape)).requires_grad_(False)
         L1_list = torch.tensor([

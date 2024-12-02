@@ -7,6 +7,8 @@ LOSSES = {
     LossDepthCfgWrapper: LossDepth,
     LossLpipsCfgWrapper: LossLpips,
     LossMseCfgWrapper: LossMse,
+    LossSmoothWrapper: LossSmooth,
+    LossOpticalFlowWrapper: LossFlow
 }
 
 LossCfgWrapper = LossDepthCfgWrapper | LossLpipsCfgWrapper | LossMseCfgWrapper

@@ -7,7 +7,7 @@ import torch
 from ..dataset.types import BatchedExample
 from ..model.decoder.decoder import DecoderOutput
 from ..model.types import Gaussians
-from .loss import AddLoss
+from .loss import FlowLoss
 
 @dataclass
 class LossFlowCfg:
@@ -17,7 +17,7 @@ class LossFlowCfg:
 class LossFlowCfgWrapper:
     flow: LossFlowCfg
 
-class LossFlow(AddLoss[LossFlowCfg, LossFlowCfgWrapper]):
+class LossFlow(FlowLoss[LossFlowCfg, LossFlowCfgWrapper]):
 
     def __init__(self, cfg: LossFlowCfgWrapper):
         super().__init__(cfg)
@@ -25,14 +25,11 @@ class LossFlow(AddLoss[LossFlowCfg, LossFlowCfgWrapper]):
 
     def forward(
         self,
-        R: list,
-        T: list,
+        Flow_cam: Tensor,
+        Flow_est: Tensor,
+        Threshold: float
     ) -> Float[Tensor, ""]:
-        assert len(R) == len(T)
-        I = torch.eyes((R[0].shape)).requires_grad_(False)
-        L1_list = torch.tensor([
-            torch.norm(R[i].T@R[i+1]-I, p='fro', dim=None, keepdim=True, out=None) + \
-            (R[i].T@(T[i+1]-T[i]))**2 \
-                for i in range(0,len(R)-1)
-        ])
-        return self.cfg.weight * L1_list.sum()
+    # 断续地包含training strategy中的t←t'，求和在外部实现（这里只实现某一项的FlowLoss）
+        delta = Flow_cam - Flow_est
+        S = delta[delta < Threshold] # True / False
+        return S * (delta)
