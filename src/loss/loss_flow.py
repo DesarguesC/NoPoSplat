@@ -32,4 +32,4 @@ class LossFlow(FlowLoss[LossFlowCfg, LossFlowCfgWrapper]):
     # 断续地包含training strategy中的t←t'，求和在外部实现（这里只实现某一项的FlowLoss）
         delta = Flow_cam - Flow_est
         S = delta[delta < Threshold] # True / False
-        return S * (delta)
+        return S * (delta) # 看下论文，这里写的有点问题？
