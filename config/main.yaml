@@ -1,7 +1,7 @@
 defaults:
   - model/encoder: noposplat
   - model/decoder: splatting_cuda
-  - loss: [mse]
+  - loss: [mse, smooth, flow]
 
 wandb:
   project: noposplat
@@ -19,7 +19,7 @@ data_loader:
   train:
     num_workers: 16
     persistent_workers: true
-    batch_size: 4
+    batch_size: 4 # batch = 4 for gpu=2 [2 * A6000/RTX3090]
     seed: 1234
   test:
     num_workers: 4
