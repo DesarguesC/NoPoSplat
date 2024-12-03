@@ -22,7 +22,7 @@ class LossSmoothCfgWrapper:
     smooth: LossSmoothCfg
 
 
-class LossFlow(SmoothLoss[LossSmoothCfg, LossSmoothCfgWrapper]):
+class LossSmooth(SmoothLoss[LossSmoothCfg, LossSmoothCfgWrapper]):
 
     def __init__(self, cfg: LossSmoothCfgWrapper):
         super().__init__(cfg)
