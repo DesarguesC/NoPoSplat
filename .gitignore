@@ -51,6 +51,9 @@ coverage.xml
 .pytest_cache/
 cover/
 
+pretrained_weights/
+submodules/
+
 # Translations
 *.mo
 *.pot
@@ -159,11 +162,10 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
 
-/datasets
+datasets/
 /dataset_cache
 
-# Outputs
-/outputs
+outputs/
 /lightning_logs
 /checkpoints
 
