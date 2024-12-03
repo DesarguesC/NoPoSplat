@@ -3,7 +3,7 @@ from pathlib import Path
 
 import hydra
 import torch
-import wandb
+import wandb, pdb
 import signal
 from colorama import Fore
 from jaxtyping import install_import_hook
@@ -45,6 +45,8 @@ def cyan(text: str) -> str:
 def train(cfg_dict: DictConfig):
     cfg = load_typed_root_config(cfg_dict)
     set_cfg(cfg_dict)
+
+    pdb.set_trace()
 
     # Set up the output directory.
     output_dir = Path(

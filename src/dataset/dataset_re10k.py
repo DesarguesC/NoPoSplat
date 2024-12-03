@@ -49,6 +49,10 @@ class DatasetDL3DVCfgWrapper:
 class DatasetScannetppCfgWrapper:
     scannetpp: DatasetRE10kCfg
 
+@dataclass
+class DatasetPointOdysseyCfgWrapper:
+    point_odyssey: DatasetRE10kCfg
+
 
 class DatasetRE10k(IterableDataset):
     cfg: DatasetRE10kCfg
