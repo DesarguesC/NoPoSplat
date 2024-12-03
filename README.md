@@ -115,6 +115,7 @@ Then call `src/main.py` via:
 ```bash
 # 8 GPUs, with each batch size = 16. Remove the last two arguments if you don't want to use wandb for logging
 python -m src.main +experiment=re10k wandb.mode=online wandb.name=re10k
+python -m src.main +experiment=point_odyssey wandb.mode=online wandb.name=point_odyssey # new
 ```
 This default training configuration requires 8x GPUs with a batch size of 16 on each GPU (>=80GB memory). 
 The training will take approximately 6 hours to complete.
