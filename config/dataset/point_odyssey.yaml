@@ -1,7 +1,11 @@
 defaults:
   - base_dataset
   - view_sampler: bounded
-  - optional view_sampler_dataset_specific_config@view_sampler: bounded_re10k
+  - optional view_sampler_dataset_specific_config@view_sampler: bounded_point_odyssey
+
+# src/dataset/view_sampler/__init__.py
+# 8:      from .view_sampler_bounded import ViewSamplerBounded, ViewSamplerBoundedCfg
+# 14:    "bounded": ViewSamplerBounded,
 
 name: point_odyssey # wandb.name
 roots: [datasets/point_odyssey]
