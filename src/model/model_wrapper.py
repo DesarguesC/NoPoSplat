@@ -4,7 +4,7 @@ from typing import Optional, Protocol, runtime_checkable, Any
 
 import moviepy.editor as mpy
 import torch
-import wandb
+import wandb, pdb
 from einops import pack, rearrange, repeat
 from jaxtyping import Float
 from lightning.pytorch import LightningModule
@@ -132,7 +132,9 @@ class ModelWrapper(LightningModule):
 
     def training_step(self, batch, batch_idx):
         # combine batch from different dataloaders
-        if isinstance(batch, list):
+        pdb.set_trace()
+
+        if isinstance(batch, list): # check attributions
             batch_combined = None
             for batch_per_dl in batch:
                 if batch_combined is None:
@@ -147,6 +149,7 @@ class ModelWrapper(LightningModule):
                         else:
                             raise NotImplementedError
             batch = batch_combined
+        # src.dataset.dataset_re10k.py - line: 183
         batch: BatchedExample = self.data_shim(batch)
         _, _, _, h, w = batch["target"]["image"].shape
 
@@ -155,20 +158,20 @@ class ModelWrapper(LightningModule):
         if self.distiller is not None:
             visualization_dump = {}
         gaussians = self.encoder(batch["context"], self.global_step, visualization_dump=visualization_dump)
-        output = self.decoder.forward(
+        output = self.decoder.forward( # class DecoderSplattingCUDA
             gaussians,
-            batch["target"]["extrinsics"],
-            batch["target"]["intrinsics"],
-            batch["target"]["near"],
-            batch["target"]["far"],
+            batch["target"]["extrinsics"],      # batch × views × 4 × 4
+            batch["target"]["intrinsics"],      # batch × views × 3 × 3
+            batch["target"]["near"],            # batch × views: 0.1 [可以换成0.01试试: DatasetPointOdyssey.near = 0.01 (line: 40)]
+            batch["target"]["far"],             # batch × views: 100
             (h, w),
             depth_mode=self.train_cfg.depth_mode,
         )
-        target_gt = batch["target"]["image"]
+        target_gt = batch["target"]["image"] # ground truth
 
         # Compute metrics.
         psnr_probabilistic = compute_psnr(
-            rearrange(target_gt, "b v c h w -> (b v) c h w"),
+            rearrange(target_gt, "b v c h w -> (b v) c h w"), # 应该是多张图片放在一个tensor里了
             rearrange(output.color, "b v c h w -> (b v) c h w"),
         )
         self.log("train/psnr_probabilistic", psnr_probabilistic.mean())

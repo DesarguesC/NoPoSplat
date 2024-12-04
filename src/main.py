@@ -46,6 +46,8 @@ def train(cfg_dict: DictConfig):
     cfg = load_typed_root_config(cfg_dict)
     set_cfg(cfg_dict)
 
+    cfg.mode = 'val' # 先再validate上跑
+
     pdb.set_trace()
 
     # Set up the output directory.
@@ -141,21 +143,33 @@ def train(cfg_dict: DictConfig):
         cfg.optimizer,
         cfg.test,
         cfg.train,
-        encoder,
+        encoder, # MAST3R
         encoder_visualizer,
-        get_decoder(cfg.model.decoder),
+        get_decoder(cfg.model.decoder), # class DecoderSplattingCUDA
         get_losses(cfg.loss),
         step_tracker,
         distiller=distiller,
     )
-    data_module = DataModule(
+
+
+    data_module = DataModule( # check here: dataset loading
         cfg.dataset,
         cfg.data_loader,
         step_tracker,
         global_rank=trainer.global_rank,
     )
+    pdb.set_trace()
 
-    if cfg.mode == "train":
+    val_data = data_module.val_dataloader()
+
+    pdb.set_trace()
+    for idx, (in_batch, out_batch) in enumerate(val_data):
+        pdb.set_trace()
+        print(idx, in_batch.shape, out_batch.shape)
+
+    train_data = data_module.train_dataloader()
+
+    if cfg.mode == "train": # check: data_module
         trainer.fit(model_wrapper, datamodule=data_module, ckpt_path=checkpoint_path)
     else:
         trainer.test(

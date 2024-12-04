@@ -48,7 +48,7 @@ class DecoderSplattingCUDA(Decoder[DecoderSplattingCUDACfg]):
     ) -> DecoderOutput:
         b, v, _, _ = extrinsics.shape
         color, depth = render_cuda(
-            rearrange(extrinsics, "b v i j -> (b v) i j"),
+            rearrange(extrinsics, "b v i j -> (b v) i j"), # b 是训练时的batch，v是有多少个视角就是多少
             rearrange(intrinsics, "b v i j -> (b v) i j"),
             rearrange(near, "b v -> (b v)"),
             rearrange(far, "b v -> (b v)"),

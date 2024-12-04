@@ -28,8 +28,8 @@ class Loss(nn.Module, ABC, Generic[T_cfg, T_wrapper]):
     @abstractmethod
     def forward(
         self,
-        prediction: DecoderOutput,
-        batch: BatchedExample,
+        prediction: DecoderOutput,  #
+        batch: BatchedExample,      # g.t.
         gaussians: Gaussians,
         global_step: int,
     ) -> Float[Tensor, ""]:

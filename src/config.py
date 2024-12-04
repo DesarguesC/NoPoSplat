@@ -12,6 +12,7 @@ from .model.decoder import DecoderCfg
 from .model.encoder import EncoderCfg
 from .model.model_wrapper import OptimizerCfg, TestCfg, TrainCfg
 
+import pdb
 
 @dataclass
 class CheckpointingCfg:
@@ -96,6 +97,7 @@ def separate_dataset_cfg_wrappers(joined: dict) -> list[DatasetCfgWrapper]:
 
 
 def load_typed_root_config(cfg: DictConfig) -> RootCfg:
+    # pdb.set_trace()
     return load_typed_config(
         cfg,
         RootCfg,

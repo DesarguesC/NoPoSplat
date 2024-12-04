@@ -1,3 +1,4 @@
+import pdb
 import random
 from dataclasses import dataclass
 from typing import Callable
@@ -88,6 +89,7 @@ class DataModule(LightningDataModule):
         return generator
 
     def train_dataloader(self):
+        pdb.set_trace()
         datasets = get_dataset(self.dataset_cfgs, "train", self.step_tracker)
         data_loaders = []
         for dataset in datasets:
@@ -106,6 +108,7 @@ class DataModule(LightningDataModule):
         return data_loaders if len(data_loaders) > 1 else data_loaders[0]
 
     def val_dataloader(self):
+        pdb.set_trace()
         datasets = get_dataset(self.dataset_cfgs, "val", self.step_tracker)
         data_loaders = []
         for dataset in datasets:
@@ -123,6 +126,7 @@ class DataModule(LightningDataModule):
         return data_loaders if len(data_loaders) > 1 else data_loaders[0]
 
     def test_dataloader(self):
+        pdb.set_trace()
         datasets = get_dataset(self.dataset_cfgs, "test", self.step_tracker)
         data_loaders = []
         for dataset in datasets:

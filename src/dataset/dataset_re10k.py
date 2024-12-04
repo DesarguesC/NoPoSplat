@@ -49,12 +49,10 @@ class DatasetDL3DVCfgWrapper:
 class DatasetScannetppCfgWrapper:
     scannetpp: DatasetRE10kCfg
 
-@dataclass
-class DatasetPointOdysseyCfgWrapper:
-    point_odyssey: DatasetRE10kCfg
 
 
 class DatasetRE10k(IterableDataset):
+    # TODO: 如何读取数据在这里实现
     cfg: DatasetRE10kCfg
     stage: Stage
     view_sampler: ViewSampler
@@ -124,6 +122,7 @@ class DatasetRE10k(IterableDataset):
                 scene = example["key"]
 
                 try:
+                    # src.dataset.view_sampler.view_sampler_bounded.py - line: 126
                     context_indices, target_indices, overlap = self.view_sampler.sample(
                         scene,
                         extrinsics,

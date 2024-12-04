@@ -1,4 +1,7 @@
-from .loss import Loss
+
+from typing import Optional
+
+from .loss import Loss, SmoothLoss, FlowLoss
 from .loss_depth import LossDepth, LossDepthCfgWrapper
 from .loss_lpips import LossLpips, LossLpipsCfgWrapper
 from .loss_mse import LossMse, LossMseCfgWrapper
@@ -13,8 +16,8 @@ LOSSES = {
     LossFlowCfgWrapper: LossFlow
 }
 
-LossCfgWrapper = LossDepthCfgWrapper | LossLpipsCfgWrapper | LossMseCfgWrapper
+LossCfgWrapper = LossDepthCfgWrapper | LossLpipsCfgWrapper | LossMseCfgWrapper | LossSmoothCfgWrapper | LossFlowCfgWrapper
 
 
-def get_losses(cfgs: list[LossCfgWrapper]) -> list[Loss]:
+def get_losses(cfgs: list[LossCfgWrapper]) -> list[Loss | FlowLoss | SmoothLoss]:
     return [LOSSES[type(cfg)](cfg) for cfg in cfgs]

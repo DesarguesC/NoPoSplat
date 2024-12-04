@@ -37,7 +37,7 @@ class ViewSamplerBounded(ViewSampler[ViewSamplerBoundedCfg]):
         Int64[Tensor, " target_view"],  # indices for target views
         Float[Tensor, " overlap"],  # overlap
     ]:
-        num_views, _, _ = extrinsics.shape
+        num_views, _, _ = extrinsics.shape # 两个view, 所以ex/in都是按照channel拼接的
 
         # Compute the context view spacing based on the current global step.
         if self.stage == "test":
@@ -94,6 +94,7 @@ class ViewSamplerBounded(ViewSampler[ViewSamplerBoundedCfg]):
                 device=device,
             )
         else:
+            # TODO: train / val
             # When training or validating (visualizing), pick at random.
             index_target = torch.randint(
                 index_context_left + self.cfg.min_distance_to_context_views,
