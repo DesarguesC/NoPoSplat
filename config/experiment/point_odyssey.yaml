@@ -21,7 +21,7 @@ model:
     make_scale_invariant: true
 
 dataset:
-  re10k:
+  point_odyssey:
     view_sampler:
       warm_up_steps: 9375
 
