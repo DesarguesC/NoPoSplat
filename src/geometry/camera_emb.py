@@ -6,7 +6,7 @@ from ..misc.sht import rsh_cart_2, rsh_cart_4, rsh_cart_6, rsh_cart_8
 
 def get_intrinsic_embedding(context, degree=0, downsample=1, merge_hw=False):
     assert degree in [0, 2, 4, 8]
-
+    #     ↓ views
     b, v, _, h, w = context["image"].shape
     device = context["image"].device
     tgt_h, tgt_w = h // downsample, w // downsample

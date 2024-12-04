@@ -2,7 +2,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-import torch
+import torch, pdb
 import torch.nn.functional as F
 from einops import rearrange
 from jaxtyping import Float
@@ -146,7 +146,10 @@ class EncoderNoPoSplat(Encoder[EncoderNoPoSplatCfg]):
         b, v, _, h, w = context["image"].shape
 
         # Encode the context images.
-        dec1, dec2, shape1, shape2, view1, view2 = self.backbone(context, return_views=True)
+        dec1, dec2, shape1, shape2, view1, view2 = self.backbone(context, return_views=True) # PE & Proj
+        # src.model/encoder/backbone/backbone_croco.py - line: 222
+
+        pdb.set_trace()
         with torch.cuda.amp.autocast(enabled=False):
             res1 = self._downstream_head(1, [tok.float() for tok in dec1], shape1)
             res2 = self._downstream_head(2, [tok.float() for tok in dec2], shape2)

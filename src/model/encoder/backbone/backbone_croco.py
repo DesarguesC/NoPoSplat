@@ -2,7 +2,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Literal
 
-import torch
+import torch, pdb
 from torch import nn
 
 from .croco.blocks import DecoderBlock
@@ -133,11 +133,10 @@ class AsymmetricCroCo(CroCoNet):
         # embed the image into patches  (x has size B x Npatches x C)
         x, pos = self.patch_embed(image, true_shape=true_shape)
 
-        if intrinsics_embed is not None:
-
+        if intrinsics_embed is not None: # √
             if self.intrinsics_embed_type == 'linear':
                 x = x + intrinsics_embed
-            elif self.intrinsics_embed_type == 'token':
+            elif self.intrinsics_embed_type == 'token': # √
                 x = torch.cat((x, intrinsics_embed), dim=1)
                 add_pose = pos[:, 0:1, :].clone()
                 add_pose[:, :, 0] += (pos[:, -1, 0].unsqueeze(-1) + 1)
@@ -154,7 +153,9 @@ class AsymmetricCroCo(CroCoNet):
         return x, pos, None
 
     def _encode_image_pairs(self, img1, img2, true_shape1, true_shape2, intrinsics_embed1=None, intrinsics_embed2=None):
-        if img1.shape[-2:] == img2.shape[-2:]:
+        # embed the image into patches
+        # 拼接后编码为patch
+        if img1.shape[-2:] == img2.shape[-2:]: # 应该会跑这里，效果差不多，主要是避免HW不同而报错
             out, pos, _ = self._encode_image(torch.cat((img1, img2), dim=0),
                                              torch.cat((true_shape1, true_shape2), dim=0),
                                              torch.cat((intrinsics_embed1, intrinsics_embed2), dim=0) if intrinsics_embed1 is not None else None)
@@ -165,26 +166,26 @@ class AsymmetricCroCo(CroCoNet):
             out2, pos2, _ = self._encode_image(img2, true_shape2, intrinsics_embed2)
         return out, out2, pos, pos2
 
-    def _encode_symmetrized(self, view1, view2, force_asym=False):
+    def _encode_symmetrized(self, view1, view2, force_asym=False): # True
         img1 = view1['img']
-        img2 = view2['img']
+        img2 = view2['img'] # b, _, H, W
         B = img1.shape[0]
         # Recover true_shape when available, otherwise assume that the img shape is the true one
-        shape1 = view1.get('true_shape', torch.tensor(img1.shape[-2:])[None].repeat(B, 1))
+        shape1 = view1.get('true_shape', torch.tensor(img1.shape[-2:])[None].repeat(B, 1)) # repeat: shape[2] -> shape[B,2]
         shape2 = view2.get('true_shape', torch.tensor(img2.shape[-2:])[None].repeat(B, 1))
         # warning! maybe the images have different portrait/landscape orientations
 
         intrinsics_embed1 = view1.get('intrinsics_embed', None)
         intrinsics_embed2 = view2.get('intrinsics_embed', None)
 
-        if force_asym or not is_symmetrized(view1, view2):
+        if force_asym or not is_symmetrized(view1, view2): # 会运行
             feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1, img2, shape1, shape2, intrinsics_embed1, intrinsics_embed2)
         else:
             # computing half of forward pass!'
             feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1[::2], img2[::2], shape1[::2], shape2[::2])
             feat1, feat2 = interleave(feat1, feat2)
             pos1, pos2 = interleave(pos1, pos2)
-
+        # feat/pos -> patch/PE
         return (shape1, shape2), (feat1, feat2), (pos1, pos2)
 
     def _decoder(self, f1, pos1, f2, pos2, extra_embed1=None, extra_embed2=None):
@@ -196,7 +197,7 @@ class AsymmetricCroCo(CroCoNet):
             f2 = torch.cat((f2, extra_embed2), dim=-1)
 
         # project to decoder dim
-        f1 = self.decoder_embed(f1)
+        f1 = self.decoder_embed(f1) # 也是需要训练的Linear层
         f2 = self.decoder_embed(f2)
 
         final_output.append((f1, f2))
@@ -221,23 +222,26 @@ class AsymmetricCroCo(CroCoNet):
 
     def forward(self,
                 context: dict,
-                symmetrize_batch=False,
-                return_views=False,
+                symmetrize_batch=False, # False
+                return_views=False, # True
                 ):
         b, v, _, h, w = context["image"].shape
         device = context["image"].device
 
-        view1, view2 = ({'img': context["image"][:, 0]},
+        pdb.set_trace()
+        view1, view2 = ({'img': context["image"][:, 0]}, # TODO: 为什么是 [:,0] ???
                         {'img': context["image"][:, 1]})
 
         # camera embedding in the encoder
         if self.intrinsics_embed_loc == 'encoder' and self.intrinsics_embed_type == 'pixelwise':
-            intrinsic_emb = get_intrinsic_embedding(context, degree=self.intrinsics_embed_degree)
+            intrinsic_emb = get_intrinsic_embedding(context, degree=self.intrinsics_embed_degree) # 改用MonST3R的时空编码
             view1['img'] = torch.cat((view1['img'], intrinsic_emb[:, 0]), dim=1)
             view2['img'] = torch.cat((view2['img'], intrinsic_emb[:, 1]), dim=1)
 
+        # 跑这个
         if self.intrinsics_embed_loc == 'encoder' and (self.intrinsics_embed_type == 'token' or self.intrinsics_embed_type == 'linear'):
-            intrinsic_embedding = self.intrinsic_encoder(context["intrinsics"].flatten(2))
+            # 这里就是Linear层！（优化对象1）
+            intrinsic_embedding = self.intrinsic_encoder(context["intrinsics"].flatten(2)) # 先将相机内参编码后存进来
             view1['intrinsics_embed'] = intrinsic_embedding[:, 0].unsqueeze(1)
             view2['intrinsics_embed'] = intrinsic_embedding[:, 1].unsqueeze(1)
 
@@ -251,7 +255,7 @@ class AsymmetricCroCo(CroCoNet):
 
             # encode the two images --> B,S,D
             (shape1, shape2), (feat1, feat2), (pos1, pos2) = self._encode_symmetrized(view1, view2, force_asym=False)
-        else:
+        else: # 跑这里
             # encode the two images --> B,S,D
             (shape1, shape2), (feat1, feat2), (pos1, pos2) = self._encode_symmetrized(view1, view2, force_asym=True)
 
@@ -259,17 +263,18 @@ class AsymmetricCroCo(CroCoNet):
             # FIXME: downsample is hardcoded to 16
             intrinsic_emb = get_intrinsic_embedding(context, degree=self.intrinsics_embed_degree, downsample=16, merge_hw=True)
             dec1, dec2 = self._decoder(feat1, pos1, feat2, pos2, intrinsic_emb[:, 0], intrinsic_emb[:, 1])
-        else:
-            dec1, dec2 = self._decoder(feat1, pos1, feat2, pos2)
+        else: # √
+            # patch + PE
+            dec1, dec2 = self._decoder(feat1, pos1, feat2, pos2) # Proj
 
-        if self.intrinsics_embed_loc == 'encoder' and self.intrinsics_embed_type == 'token':
+        if self.intrinsics_embed_loc == 'encoder' and self.intrinsics_embed_type == 'token': # √
             dec1, dec2 = list(dec1), list(dec2)
             for i in range(len(dec1)):
-                dec1[i] = dec1[i][:, :-1]
+                dec1[i] = dec1[i][:, :-1] # 回归完取末尾
                 dec2[i] = dec2[i][:, :-1]
 
         if return_views:
-            return dec1, dec2, shape1, shape2, view1, view2
+            return dec1, dec2, shape1, shape2, view1, view2 # img和intrinsics还未concatenate
         return dec1, dec2, shape1, shape2
 
     @property
