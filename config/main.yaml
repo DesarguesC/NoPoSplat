@@ -1,7 +1,7 @@
 defaults:
   - model/encoder: noposplat
   - model/decoder: splatting_cuda
-  - loss: [mse, lpips, smooth, flow]
+  - loss: [mse, lpips]
 
 wandb:
   project: noposplat
