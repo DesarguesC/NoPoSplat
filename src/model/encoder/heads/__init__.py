@@ -14,7 +14,7 @@ def head_factory(head_type, output_mode, net, has_conf=False, out_nchan=3):
     """
     if head_type == 'linear' and output_mode == 'pts3d':
         return LinearPts3d(net, has_conf)
-    elif head_type == 'dpt' and output_mode == 'pts3d':
+    elif head_type == 'dpt' and output_mode == 'pts3d': # √
         return create_dpt_head(net, has_conf=has_conf)
     elif head_type == 'dpt' and output_mode == 'gs_params':
         return create_dpt_head(net, has_conf=False, out_nchan=out_nchan, postprocess_func=None)

@@ -166,7 +166,7 @@ class ModelWrapper(LightningModule):
             batch["target"]["far"],             # batch × views: 100
             (h, w),
             depth_mode=self.train_cfg.depth_mode,
-        )
+        ) # 仅用于将gs参数渲染为 rgb & depth
         target_gt = batch["target"]["image"] # ground truth
 
         # Compute metrics.

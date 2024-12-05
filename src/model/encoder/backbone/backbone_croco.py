@@ -264,7 +264,7 @@ class AsymmetricCroCo(CroCoNet):
             intrinsic_emb = get_intrinsic_embedding(context, degree=self.intrinsics_embed_degree, downsample=16, merge_hw=True)
             dec1, dec2 = self._decoder(feat1, pos1, feat2, pos2, intrinsic_emb[:, 0], intrinsic_emb[:, 1])
         else: # √
-            # patch + PE
+            # pos不变，dec = f^n(emb(f), pos)，按预设的transformer层数回归
             dec1, dec2 = self._decoder(feat1, pos1, feat2, pos2) # Proj
 
         if self.intrinsics_embed_loc == 'encoder' and self.intrinsics_embed_type == 'token': # √

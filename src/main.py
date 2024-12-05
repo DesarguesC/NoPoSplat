@@ -126,11 +126,11 @@ def train(cfg_dict: DictConfig):
 
     # Load the encoder weights.
     if cfg.model.encoder.pretrained_weights and cfg.mode == "train":
-        weight_path = cfg.model.encoder.pretrained_weights
+        weight_path = cfg.model.encoder.pretrained_weights # 会用预训练的MASt3R初始所有encoder/decoder
         ckpt_weights = torch.load(weight_path, map_location='cpu')
         if 'model' in ckpt_weights:
             ckpt_weights = ckpt_weights['model']
-            ckpt_weights = checkpoint_filter_fn(ckpt_weights, encoder)
+            ckpt_weights = checkpoint_filter_fn(ckpt_weights, encoder) # 填充权重
             missing_keys, unexpected_keys = encoder.load_state_dict(ckpt_weights, strict=False)
         elif 'state_dict' in ckpt_weights:
             ckpt_weights = ckpt_weights['state_dict']
@@ -143,7 +143,7 @@ def train(cfg_dict: DictConfig):
         cfg.optimizer,
         cfg.test,
         cfg.train,
-        encoder, # MAST3R
+        encoder, # MAST3R初始的
         encoder_visualizer,
         get_decoder(cfg.model.decoder), # class DecoderSplattingCUDA
         get_losses(cfg.loss),

@@ -131,7 +131,8 @@ class EncoderNoPoSplat(Encoder[EncoderNoPoSplatCfg]):
         return 0.5 * (1 - (1 - pdf) ** exponent + pdf ** (1 / exponent))
 
     def _downstream_head(self, head_num, decout, img_shape, ray_embedding=None):
-        B, S, D = decout[-1].shape
+        # decout: decoded token list
+        # B, S, D = decout[-1].shape
         # img_shape = tuple(map(int, img_shape))
         head = getattr(self, f'head{head_num}')
         return head(decout, img_shape, ray_embedding=ray_embedding)
@@ -148,6 +149,7 @@ class EncoderNoPoSplat(Encoder[EncoderNoPoSplatCfg]):
         # Encode the context images.
         dec1, dec2, shape1, shape2, view1, view2 = self.backbone(context, return_views=True) # PE & Proj
         # src.model/encoder/backbone/backbone_croco.py - line: 222
+        # 完成了：嵌入、feature回归、解码 -> tokens
 
         pdb.set_trace()
         with torch.cuda.amp.autocast(enabled=False):
@@ -163,13 +165,16 @@ class EncoderNoPoSplat(Encoder[EncoderNoPoSplatCfg]):
                 GS_res1 = rearrange(GS_res1, "b d h w -> b (h w) d")
                 GS_res2 = self.gaussian_param_head2([tok.float() for tok in dec2], shape2[0].cpu().tolist())
                 GS_res2 = rearrange(GS_res2, "b d h w -> b (h w) d")
-            elif self.gs_params_head_type == 'dpt_gs':
+            elif self.gs_params_head_type == 'dpt_gs': # √
                 GS_res1 = self.gaussian_param_head([tok.float() for tok in dec1], res1['pts3d'].permute(0, 3, 1, 2), view1['img'][:, :3], shape1[0].cpu().tolist())
                 GS_res1 = rearrange(GS_res1, "b d h w -> b (h w) d")
                 GS_res2 = self.gaussian_param_head2([tok.float() for tok in dec2], res2['pts3d'].permute(0, 3, 1, 2), view2['img'][:, :3], shape2[0].cpu().tolist())
                 GS_res2 = rearrange(GS_res2, "b d h w -> b (h w) d")
 
-        pts3d1 = res1['pts3d']
+        # 前面已经跑过GS head了
+        pdb.set_trace()
+
+        pts3d1 = res1['pts3d'] # pts: points?
         pts3d1 = rearrange(pts3d1, "b h w d -> b (h w) d")
         pts3d2 = res2['pts3d']
         pts3d2 = rearrange(pts3d2, "b h w d -> b (h w) d")
