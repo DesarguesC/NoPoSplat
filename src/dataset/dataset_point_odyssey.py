@@ -1,4 +1,4 @@
-import json
+import json, os, sys
 from dataclasses import dataclass
 from functools import cached_property
 from io import BytesIO
@@ -20,8 +20,8 @@ from .shims.crop_shim import apply_crop_shim
 from .types import Stage
 from .view_sampler import ViewSampler
 from ..misc.cam_utils import camera_normalization
-
-import pdb
+import numpy as np
+import pdb, glob
 
 from .dataset_re10k import DatasetRE10kCfg
 
@@ -52,17 +52,99 @@ class DatasetPointOdyssey(IterableDataset):
         self.view_sampler = view_sampler
         self.to_tensor = tf.ToTensor()
 
-        # Collect chunks.
-        self.chunks = []
-        for root in cfg.roots:
-            root = root / self.data_stage
-            root_chunks = sorted(
-                [path for path in root.iterdir() if path.suffix == ".torch"]
-            )
-            self.chunks.extend(root_chunks)
-        if self.cfg.overfit_to_scene is not None:
-            chunk_path = self.index[self.cfg.overfit_to_scene]
-            self.chunks = [chunk_path] * len(self.chunks)
+        self.set_attr(self, cfg)
+
+        # Collect chunks. -> original （re10k）
+        # self.chunks = []
+        # for root in cfg.roots:
+        #     root = root / self.data_stage
+        #     root_chunks = sorted(
+        #         [path for path in root.iterdir() if path.suffix == ".torch"]
+        #     )
+        #     self.chunks.extend(root_chunks)
+        # if self.cfg.overfit_to_scene is not None:
+        #     chunk_path = self.index[self.cfg.overfit_to_scene]
+        #     self.chunks = [chunk_path] * len(self.chunks)
+
+        for subdir in self.subdirs:
+            for seq in glob.glob(os.path.join(subdir, "*/")):
+                seq_name = seq.split('/')[-1]
+                self.sequences.append(seq)
+
+        self.sequences = sorted(self.sequences)
+        if self.verbose:
+            print(self.sequences)
+        print('found %d unique videos in %s (dset=%s)' % (len(self.sequences), self.dataset_location, self.stage))
+
+        ## load trajectories
+        print('loading trajectories...')
+
+        if self.quick:
+            self.sequences = self.sequences[1:2]
+
+        for seq in self.sequences:
+            if self.verbose:
+                print('seq', seq)
+
+            rgb_path = os.path.join(seq, 'rgbs')
+            info_path = os.path.join(seq, 'info.npz')
+            annotations_path = os.path.join(seq, 'anno.npz')
+
+            if os.path.isfile(info_path) and os.path.isfile(annotations_path):
+
+                info = np.load(info_path, allow_pickle=True)
+                trajs_3d_shape = info['trajs_3d'].astype(np.float32)
+
+                if len(trajs_3d_shape) and trajs_3d_shape[1] > self.N:
+
+                    for stride in self.strides:
+                        for ii in range(0, len(os.listdir(rgb_path)) - self.S * max(stride, self.clip_step_last_skip) + 1,
+                                        self.clip_step):
+                            full_idx = ii + np.arange(self.S) * stride
+                            self.rgb_paths.append([os.path.join(seq, 'rgbs', 'rgb_%05d.jpg' % idx) for idx in full_idx])
+                            self.depth_paths.append(
+                                [os.path.join(seq, 'depths', 'depth_%05d.png' % idx) for idx in full_idx])
+                            self.normal_paths.append(
+                                [os.path.join(seq, 'normals', 'normal_%05d.jpg' % idx) for idx in full_idx])
+                            self.annotation_paths.append(os.path.join(seq, 'anno.npz'))
+                            self.full_idxs.append(full_idx)
+                            self.sample_stride.append(stride)
+                        if self.verbose:
+                            sys.stdout.write('.')
+                            sys.stdout.flush()
+                elif self.verbose:
+                    print('rejecting seq for missing 3d')
+            elif self.verbose:
+                print('rejecting seq for missing info or anno')
+
+    def set_attr(self, cfg):
+        setattr(self, 'dataset_location', cfg.dataset_location)
+        gp = cfg.graph # graph_param
+        setattr(self, 'use_augs', gp.use_augs) # bool
+        setattr(self, 'S', gp.S)
+        setattr(self, 'N', gp.N)
+        setattr(self, 'strides', gp.strides) # list
+        setattr(self, 'clip_step', gp.clip_step)
+        setattr(self, 'quick', gp.quick) # bool
+        setattr(self, 'verbose', gp.verbose)
+        setattr(self, 'dist_type', gp.dist_type)
+        setattr(self, 'clip_step_last_skip', gp.clip_step_last_skip)
+
+        if not isinstance(self.strides, list):
+            print(f'abnormal stride: {self.strides}')
+            pdb.set_trace()
+
+        self.rgb_paths = []
+        self.depth_paths = []
+        self.normal_paths = []
+        self.traj_paths = []
+        self.annotation_paths = []
+        self.full_idxs = []
+        self.sample_stride = []
+        self.subdirs = []
+        self.sequences = []
+        self.subdirs.append(os.path.join(self.dataset_location, self.stage))
+
 
     def shuffle(self, lst: list) -> list:
         indices = torch.randperm(len(lst))
