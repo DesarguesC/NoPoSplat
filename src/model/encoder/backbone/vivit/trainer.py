@@ -28,13 +28,13 @@ import jax.numpy as jnp
 import jax.profiler
 import ml_collections
 import numpy as np
-from scenic.dataset_lib import dataset_utils
-from scenic.projects.vivit import evaluation_lib
-from scenic.projects.vivit import train_utils as vivit_train_utils
-from scenic.train_lib_deprecated import lr_schedules
-from scenic.train_lib_deprecated import optimizers
-from scenic.train_lib_deprecated import pretrain_utils
-from scenic.train_lib_deprecated import train_utils
+from .utils.dataset_lib import dataset_utils
+from .utils import evaluation_lib
+from .utils.train_lib import train_utils as vivit_train_utils
+from .utils.train_lib import lr_schedules
+from .utils.train_lib import optimizers
+from .utils.train_lib import pretrain_utils
+from .utils.train_lib import train_utils
 
 
 def train(

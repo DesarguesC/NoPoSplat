@@ -24,8 +24,8 @@ import jax
 import jax.numpy as jnp
 import ml_collections
 import numpy as np
-from scenic.common_lib import debug_utils
-from scenic.model_lib.base_models import model_utils as base_model_utils
+from .utils import debug_utils
+from .utils.model_lib.base_models import model_utils as base_model_utils
 import scipy
 
 

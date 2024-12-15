@@ -21,10 +21,10 @@ from clu import metric_writers
 import jax
 import jax.numpy as jnp
 import ml_collections
-from scenic import app
-from scenic.projects.vivit import model as vivit_model
-from scenic.projects.vivit import trainer as vivit_trainer
-from scenic.train_lib_deprecated import train_utils
+from .utils import app
+import vivit as vivit_model
+import trainer as vivit_trainer
+from .utils.train_lib import train_utils
 
 FLAGS = flags.FLAGS
 
