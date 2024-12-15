@@ -81,7 +81,9 @@ class EncoderNoPoSplat(Encoder[EncoderNoPoSplatCfg]):
 
         self.set_center_head(output_mode='pts3d', head_type='dpt', landscape_only=True,
                            depth_mode=('exp', -inf, inf), conf_mode=None,)
+        # -> self.downstream_head1, self.downstream_head2, self.head1, self.head2
         self.set_gs_params_head(cfg, cfg.gs_params_head_type)
+        # -> self.gaussian_param_head, self.gaussian_param_head2
 
     def set_center_head(self, output_mode, head_type, landscape_only, depth_mode, conf_mode):
         self.backbone.depth_mode = depth_mode
@@ -147,14 +149,17 @@ class EncoderNoPoSplat(Encoder[EncoderNoPoSplatCfg]):
         b, v, _, h, w = context["image"].shape
 
         # Encode the context images.
+        # TODO: [AIR] 要有3个head，多一个diffusion的
+        #
         dec1, dec2, shape1, shape2, view1, view2 = self.backbone(context, return_views=True) # PE & Proj
         # src.model/encoder/backbone/backbone_croco.py - line: 222
         # 完成了：嵌入、feature回归、解码 -> tokens
 
         pdb.set_trace()
         with torch.cuda.amp.autocast(enabled=False):
-            res1 = self._downstream_head(1, [tok.float() for tok in dec1], shape1)
-            res2 = self._downstream_head(2, [tok.float() for tok in dec2], shape2)
+            # 这里使用head
+            res1 = self._downstream_head(1, [tok.float() for tok in dec1], shape1) # -> self.head1
+            res2 = self._downstream_head(2, [tok.float() for tok in dec2], shape2) # -> self.head2
 
             # for the 3DGS heads
             if self.gs_params_head_type == 'linear':

@@ -118,6 +118,7 @@ def train(cfg_dict: DictConfig):
     torch.manual_seed(cfg_dict.seed + trainer.global_rank)
 
     encoder, encoder_visualizer = get_encoder(cfg.model.encoder)
+    # encoder -> class EncoderNoPoSplat
 
     distiller = None
     if cfg.train.distiller:
@@ -138,7 +139,7 @@ def train(cfg_dict: DictConfig):
             missing_keys, unexpected_keys = encoder.load_state_dict(ckpt_weights, strict=False)
         else:
             raise ValueError(f"Invalid checkpoint format: {weight_path}")
-
+    pdb.set_trace()
     model_wrapper = ModelWrapper(
         cfg.optimizer,
         cfg.test,
@@ -151,14 +152,14 @@ def train(cfg_dict: DictConfig):
         distiller=distiller,
     )
 
-
+    pdb.set_trace()
     data_module = DataModule( # check here: dataset loading
         cfg.dataset,
         cfg.data_loader,
         step_tracker,
         global_rank=trainer.global_rank,
     )
-    pdb.set_trace()
+
 
     val_data = data_module.val_dataloader()
 
