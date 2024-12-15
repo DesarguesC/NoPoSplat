@@ -30,3 +30,5 @@ flax
 immutabledict
 jax
 ml_collections
+optax
+clu
