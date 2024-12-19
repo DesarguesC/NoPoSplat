@@ -29,6 +29,7 @@ absl-py
 flax
 immutabledict
 jax
+basicsr
 ml_collections
 optax
 clu

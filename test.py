@@ -1,0 +1,3 @@
+from transformers import VivitModel
+model = VivitModel.from_pretrained("google/vivit-b-16x2-kinetics400", attn_implementation="sdpa", torch_dtype=torch.float16)
+...
