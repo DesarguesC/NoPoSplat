@@ -118,7 +118,7 @@ def train(cfg_dict: DictConfig):
     torch.manual_seed(cfg_dict.seed + trainer.global_rank)
 
     encoder, encoder_visualizer = get_encoder(cfg.model.encoder)
-    # encoder -> class EncoderNoPoSplat
+    # encoder -> class EncoderNoPoSplat | encoder_visualizer = None
 
     distiller = None
     if cfg.train.distiller:

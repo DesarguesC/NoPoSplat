@@ -1,7 +1,7 @@
 defaults:
   - backbone: croco
 
-name: noposplat
+name: vivitsplat
 
 opacity_mapping:
   initial: 0.0

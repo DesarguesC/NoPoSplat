@@ -13,6 +13,7 @@ from lightning.pytorch.loggers.wandb import WandbLogger
 from lightning.pytorch.plugins.environments import SLURMEnvironment
 from omegaconf import DictConfig, OmegaConf
 
+
 from src.misc.weight_modify import checkpoint_filter_fn
 from src.model.distiller import get_distiller
 
@@ -46,7 +47,7 @@ def train(cfg_dict: DictConfig):
     cfg = load_typed_root_config(cfg_dict)
     set_cfg(cfg_dict)
 
-    cfg.mode = 'val' # 先再validate上跑
+    cfg.mode = 'val' # 先在validate上跑
 
     pdb.set_trace()
 
@@ -117,28 +118,13 @@ def train(cfg_dict: DictConfig):
     )
     torch.manual_seed(cfg_dict.seed + trainer.global_rank)
 
-    encoder, encoder_visualizer = get_encoder(cfg.model.encoder)
-    # encoder -> class EncoderNoPoSplat
+    encoder, encoder_visualizer = get_encoder(cfg, use_vivit=True)
 
     distiller = None
     if cfg.train.distiller:
         distiller = get_distiller(cfg.train.distiller)
         distiller = distiller.eval()
 
-    # Load the encoder weights.
-    if cfg.model.encoder.pretrained_weights and cfg.mode == "train":
-        weight_path = cfg.model.encoder.pretrained_weights # 会用预训练的MASt3R初始所有encoder/decoder
-        ckpt_weights = torch.load(weight_path, map_location='cpu')
-        if 'model' in ckpt_weights:
-            ckpt_weights = ckpt_weights['model']
-            ckpt_weights = checkpoint_filter_fn(ckpt_weights, encoder) # 填充权重
-            missing_keys, unexpected_keys = encoder.load_state_dict(ckpt_weights, strict=False)
-        elif 'state_dict' in ckpt_weights:
-            ckpt_weights = ckpt_weights['state_dict']
-            ckpt_weights = {k[8:]: v for k, v in ckpt_weights.items() if k.startswith('encoder.')}
-            missing_keys, unexpected_keys = encoder.load_state_dict(ckpt_weights, strict=False)
-        else:
-            raise ValueError(f"Invalid checkpoint format: {weight_path}")
     pdb.set_trace()
     model_wrapper = ModelWrapper(
         cfg.optimizer,

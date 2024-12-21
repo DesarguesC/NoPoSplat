@@ -7,7 +7,7 @@
 from .dpt_gs_head import create_gs_dpt_head
 from .linear_head import LinearPts3d
 from .dpt_head import create_dpt_head
-
+import pdb
 
 def head_factory(head_type, output_mode, net, has_conf=False, out_nchan=3):
     """" build a prediction head for the decoder
@@ -16,6 +16,9 @@ def head_factory(head_type, output_mode, net, has_conf=False, out_nchan=3):
         return LinearPts3d(net, has_conf)
     elif head_type == 'dpt' and output_mode == 'pts3d': # √
         return create_dpt_head(net, has_conf=has_conf)
+    elif head_type == 'dpt' and output_mode == 'pts3d-dynamic':
+        pdb.set_trace()
+        return create_dpt_head(net, has_conf=has_conf) # net: vivit | 可能需要dpt之外的model
     elif head_type == 'dpt' and output_mode == 'gs_params':
         return create_dpt_head(net, has_conf=False, out_nchan=out_nchan, postprocess_func=None)
     elif head_type == 'dpt_gs' and output_mode == 'gs_params':
