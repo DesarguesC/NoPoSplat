@@ -1,18 +1,21 @@
 from typing import Optional
 
 from .encoder import Encoder
-from .encoder_noposplat import EncoderNoPoSplatCfg, EncoderNoPoSplat, EncoderVivitSplat
+from .encoder_noposplat import EncoderNoPoSplatCfg, EncoderNoPoSplat
+from .encoder_vit import EncoderVideoSplat
 from .encoder_noposplat_multi import EncoderNoPoSplatMulti
 from .visualization.encoder_visualizer import EncoderVisualizer
+import torch
+# from .encoder_vit import SpatialVivitModel, VideoMambaModel
+
 
 ENCODERS = {
     "noposplat": (EncoderNoPoSplat, None),
     "noposplat_multi": (EncoderNoPoSplatMulti, None),
-    "vivitsplat": (EncoderVivitSplat, None),
+    "videosplat": (EncoderVideoSplat, None)
 }
 
-import torch
-from ...vivit_utils import SpatialVivitModel
+
 
 EncoderCfg = EncoderNoPoSplatCfg
 

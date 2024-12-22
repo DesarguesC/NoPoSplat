@@ -6,12 +6,14 @@ from .backbone_croco_multiview import AsymmetricCroCoMulti
 from .backbone_dino import BackboneDino, BackboneDinoCfg
 from .backbone_resnet import BackboneResnet, BackboneResnetCfg
 from .backbone_croco import AsymmetricCroCo, BackboneCrocoCfg
+from .backbone_videomamba import VideoMamba
 
 BACKBONES: dict[str, Backbone[Any]] = {
     "resnet": BackboneResnet,
     "dino": BackboneDino,
     "croco": AsymmetricCroCo,
     "croco_multi": AsymmetricCroCoMulti,
+    'videomamba': VideoMamba
 }
 
 BackboneCfg = BackboneResnetCfg | BackboneDinoCfg | BackboneCrocoCfg

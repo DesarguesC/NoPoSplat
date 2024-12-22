@@ -16,7 +16,7 @@ from timm.models.layers import trunc_normal_
 from timm.models.layers import DropPath, to_2tuple
 from timm.models.vision_transformer import _load_weights
 
-import math
+import math, pdb
 
 from mamba_ssm.modules.mamba_simple import Mamba
 
@@ -392,7 +392,8 @@ def inflate_weight(weight_2d, time_dim, center=True):
 
 def load_state_dict(model, state_dict, center=True):
     state_dict_3d = model.state_dict()
-    for k in state_dict.keys():
+    pdb.set_trace()
+    for k in state_dict.keys(): # 应该可以直接额外加，这里没有参数自动不填充新加的
         if k in state_dict_3d.keys() and state_dict[k].shape != state_dict_3d[k].shape:
             if len(state_dict_3d[k].shape) <= 3:
                 print(f'Ignore: {k}')
@@ -504,14 +505,27 @@ def videomamba_base(pretrained=False, **kwargs):
     return model
 
 
-def VideoMambaModel(num_frames=8, device='cuda'):
-    seed = 4217
+def VideoMambaModel(num_frames=20, seed=4217, device='cuda'):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     model = videomamba_base(num_frames=num_frames).to(device)
     return model
+
+class VideoMamba(nn.Module):
+    def __init__(self, num_frames=20, seed=4217, device='cuda'):
+        super().__init__()
+        self.seed = seed
+        self.device = device
+        self.num_frames = num_frames
+        self.mamba_model = VideoMambaModel(num_frames, seed, device)
+        
+        # TODO: 加处理instrinsics的
+        self.intrinsic =
+
+
+
 
 
 if __name__ == '__main__':
@@ -524,21 +538,22 @@ if __name__ == '__main__':
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    num_frames = 8
-    img_size = 224
+    num_frames = 20
+    img_size1 = 224
+    img_size2 = 356
 
     # To evaluate GFLOPs, pleaset set `rms_norm=False` and `fused_add_norm=False`
-    model = videomamba_base(num_frames=num_frames).cuda()
+    model = videomamba_middle(num_frames=num_frames).cuda()
     pdb.set_trace()
 
-    folder_path = "./datasets/point_odyssey/val/ani10_new_f/rgbs"
+    folder_path = "../../../../datasets/point_odyssey/val/ani10_new_f/rgbs"
     img_names = [os.path.join(folder_path, x) for x in os.listdir(folder_path)]
     img_list = [cv2.resize(cv2.imread(img), (img_size, img_size)) for img in img_names]
     batch_size = 1
 
     pdb.set_trace()
-    monocular_tensor = [torch.cat([img2tensor(img_list[i])[None, :, :, :] for i in range(u, u + 32)]) for u in
-                        range(len(img_list) - 31)]
+    monocular_tensor = [torch.cat([img2tensor(img_list[i])[None, :, :, :] for i in range(u, u + num_frames)]) for u in
+                        range(len(img_list) - num_frames + 1)]
     u = randint(0, 100)
     video_tensor = torch.cat([monocular_tensor[i][None, :, :, :, :] for i in range(u, u + batch_size)], dim=0).to(device)
     # batch, frame, 3, H, W
