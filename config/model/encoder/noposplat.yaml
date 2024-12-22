@@ -1,7 +1,7 @@
 defaults:
-  - backbone: croco
+  - backbone: videomamba
 
-name: vivitsplat
+name: videosplat
 
 opacity_mapping:
   initial: 0.0
