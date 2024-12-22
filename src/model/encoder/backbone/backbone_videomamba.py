@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from functools import partial
 from torch import Tensor
-from typing import Optional
+from typing import Optional, Mapping, Any
 import torch.utils.checkpoint as checkpoint
 
 from einops import rearrange
@@ -316,46 +316,52 @@ class VisionMamba(nn.Module):
     def load_pretrained(self, checkpoint_path, prefix=""):
         _load_weights(self, checkpoint_path, prefix)
 
-    def forward_features(self, x, inference_params=None):
-        x = self.patch_embed(x)
-        B, C, T, H, W = x.shape
-        x = x.permute(0, 2, 3, 4, 1).reshape(B * T, H * W, C)
+    def forward_features(self, x, inference_params=None, **kwargs):
+        x = self.patch_embed(x) # [b, embed_dim, frames, h/patch_size, w/patch_size]
 
+        B, C, T, H, W = x.shape # check shapes
+        x = x.permute(0, 2, 3, 4, 1).reshape(B * T, H * W, C) # [(b * frames), (h/patch_size * w/patch_size), embed_dim]
+        # [b * frames, 1, embed_dim]
+        # TODO: 用CAT[cls_token, intrinsic_embed] ?
         cls_token = self.cls_token.expand(x.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         x = torch.cat((cls_token, x), dim=1)
-        x = x + self.pos_embed
+        pdb.set_trace()
+        x = x + self.pos_embed # [frames, num_patches+1, embed_dim]
+        if 'intrinsic_embeddings' in kwargs:
+            x = x + kwargs['intrinsic_embeddings'] # TODO: 可以加类似deformable gs里随迭代次数波动的正态噪声
 
         # temporal pos
         cls_tokens = x[:B, :1, :]
-        x = x[:, 1:]
-        x = rearrange(x, '(b t) n m -> (b n) t m', b=B, t=T)
-        x = x + self.temporal_pos_embedding
-        x = rearrange(x, '(b n) t m -> b (t n) m', b=B, t=T)
-        x = torch.cat((cls_tokens, x), dim=1)
+        x = x[:, 1:] # num_patches+1 -> num_patches
+        x = rearrange(x, '(b t) n m -> (b n) t m', b=B, t=T) # [batch * num_patches, frames, embed_dim]
+        x = x + self.temporal_pos_embedding # num_patches, frames, embed_dim
+        x = rearrange(x, '(b n) t m -> b (t n) m', b=B, t=T) # [batch, frames*num_patches, embed_dim]
+        x = torch.cat((cls_tokens, x), dim=1) # [batch, frames*num_patches+1, embed_dim]
 
         x = self.pos_drop(x)
 
         # mamba impl
         residual = None
         hidden_states = x
+        pdb.set_trace()
         for idx, layer in enumerate(self.layers):
             if self.use_checkpoint and idx < self.checkpoint_num:
                 hidden_states, residual = layer(
                     hidden_states, residual, inference_params=inference_params,
                     use_checkpoint=True
                 )
-            else:
+            else: # √
                 hidden_states, residual = layer(
                     hidden_states, residual, inference_params=inference_params
                 )
-
+        pdb.set_trace() # hidden_states: [batch, frames*num_patches+1, embed_dim]
         if not self.fused_add_norm:
             if residual is None:
                 residual = hidden_states
             else:
                 residual = residual + self.drop_path(hidden_states)
             hidden_states = self.norm_f(residual.to(dtype=self.norm_f.weight.dtype))
-        else:
+        else: # √
             # Set prenorm=False here since we don't need the residual
             fused_add_norm_fn = rms_norm_fn if isinstance(self.norm_f, RMSNorm) else layer_norm_fn
             hidden_states = fused_add_norm_fn(
@@ -367,13 +373,18 @@ class VisionMamba(nn.Module):
                 prenorm=False,
                 residual_in_fp32=self.residual_in_fp32,
             )
-
+        # hidden_states: [batch, frames*num_patches+1, embed_dim]
+        pdb.set_trace()
         # return only cls token
-        return hidden_states[:, 0, :]
+        return hidden_states[:, 1:] if kwargs.get('destroy_head', False) else hidden_states[:, 0, :]
 
-    def forward(self, x, inference_params=None):
-        x = self.forward_features(x, inference_params)
-        x = self.head(self.head_drop(x))
+    def forward(self, x, inference_params=None, **kwargs):
+        x = self.forward_features(x, inference_params, **kwargs)
+        # [batch, embed_dim]
+        pdb.set_trace()
+        if not ('destroy_head' in kwargs and kwargs['destroy_head']):
+            print('head used')
+            x = self.head(self.head_drop(x), **kwargs) # destroy ?
         return x
 
 
@@ -504,26 +515,92 @@ def videomamba_base(pretrained=False, **kwargs):
         load_state_dict(model, state_dict, center=True)
     return model
 
+mambas = {
+    'tiny': videomamba_tiny,
+    'small': videomamba_small,
+    'middle': videomamba_middle,
+    'base': videomamba_base
+}
 
-def VideoMambaModel(num_frames=20, seed=4217, device='cuda'):
+mamba_params = {
+    'tiny':     {'patch_size': 16, 'embed_dim': 192, 'depth': 24},
+    'small':    {'patch_size': 16, 'embed_dim': 384, 'depth': 24},
+    'middle':   {'patch_size': 16, 'embed_dim': 576, 'depth': 32},
+    'base':     {'patch_size': 16, 'embed_dim': 768, 'depth': 32},
+}
+
+def VideoMambaModel(mamba_choice='middle', num_frames=20, seed=4217, device='cuda'):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    model = videomamba_base(num_frames=num_frames).to(device)
+    model = mambas[mamba_choice](num_frames=num_frames).to(device)
     return model
 
 class VideoMamba(nn.Module):
-    def __init__(self, num_frames=20, seed=4217, device='cuda'):
+    def __init__(self, mamba_choice='middle', num_frames=20, seed=4217, device='cuda'):
+        # TODO: 在制作数据的时候插入相同的stride
+        # TODO: 如果在forward中随机丢弃stride？
         super().__init__()
         self.seed = seed
         self.device = device
         self.num_frames = num_frames
-        self.mamba_model = VideoMambaModel(num_frames, seed, device)
-        
-        # TODO: 加处理instrinsics的
-        self.intrinsic =
+        self.mamba_model = VideoMambaModel(mamba_choice, num_frames, seed, device)
+        # frame, batch, 3, 3
+        self.embed_dim = mamba_params[mamba_choice]['embed_dim']
+        self.intrinsic_encoder = nn.Sequential(
+            nn.Linear(9 * num_frames, 2048),
+            nn.Linear(2048, num_frames * self.embed_dim)
+        )
+        # TODO: maps to [b, embed_dim, frames, h / patch_size, w / patch_size]
+        # 「See Line - 319'forward_features'」
+        # forward: in_embed = self.intrinsic_encoder(context["intrinsics"].flatten(2))
 
+    def forward(self,
+                context: dict, # {'image':..., 'intrinsics':...}
+                symmetrize_batch=False, # False
+                return_views=False, # True
+                ):
+        b, f, _, h, w = context['video'].shaape
+        b_, f_, _, h_, w_ = context['intrinsics'].shape
+        assert h == w, f'width unequal to height: h = {h}, w = {w}'
+        assert f == f_ and b == b_, (f'videos and intrinsics mismatched at the frame: (f, f_) = {(f, f_)}')
+        pdb.set_trace()
+        intrinsic_embed = self.intrinsic_encoder(rearrange(context['intrinsics'], 'b f h w -> b (f h w)'))
+        intrinsic_embed = rearrange(intrinsic_embed.reshape((b_, f_, self.embed_dim)), 'b f e -> f b e')
+        args_dict = {
+            'intrinsic_embeddings': intrinsic_embed,
+            'destroy_head': True
+        }
+        mamba_hidden_state = self.mamba_model(context['video'], **args_dict)
+        # [batch, ]
+
+
+
+
+
+
+        # TODO: dec1, dec2, shape1, shape2, view1, view2 = self.backbone(context, return_views=True)  # PE & Proj
+
+
+    def load_intrinsics_encoder(self, weights_path: str) -> None:
+        load_state_dict(self.intrinsic_encoder, weights_path)
+
+    def save_state_dict(self, path, msg):
+        filename = f'intrinsic_encoder_{msg}.pth'
+        save_path = os.path.join(path, filename)
+        try:
+            state_dict = self.intrinsic_encoder.state_dict()
+        except Exception as err:
+            print(f'err: {err}')
+            state_dict = self.intrinsic_encoder.module.state_dict() # multi gpus
+        save_dict = {}
+        for key, param in state_dict.items():
+            if key.startswith('module.'):  # remove unnecessary 'module.'
+                key = key[7:]
+            save_dict[key] = param.cpu()
+        torch.save(save_dict, save_path)
+        # u can also choose to save optimizer.state_dict()
 
 
 
@@ -539,14 +616,11 @@ if __name__ == '__main__':
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     num_frames = 20
-    img_size1 = 224
-    img_size2 = 356
+    img_size = 224 # 必须长宽相等
+    folder_path = "../../../../datasets/point_odyssey/val/ani10_new_f/rgbs"
 
     # To evaluate GFLOPs, pleaset set `rms_norm=False` and `fused_add_norm=False`
     model = videomamba_middle(num_frames=num_frames).cuda()
-    pdb.set_trace()
-
-    folder_path = "../../../../datasets/point_odyssey/val/ani10_new_f/rgbs"
     img_names = [os.path.join(folder_path, x) for x in os.listdir(folder_path)]
     img_list = [cv2.resize(cv2.imread(img), (img_size, img_size)) for img in img_names]
     batch_size = 1
@@ -559,11 +633,27 @@ if __name__ == '__main__':
     # batch, frame, 3, H, W
     input = video_tensor.permute(0, 2, 1, 3, 4)
 
-    pdb.set_trace()
-    flops = FlopCountAnalysis(model, input)
-    output = model(input)
+    # pdb.set_trace()
+    # flops = FlopCountAnalysis(model, input)
 
+    intrinsics = torch.randn((batch_size, num_frames, 3, 3)).to(device)
+    encoder_fn = nn.Sequential(
+            nn.Linear(9 * num_frames, 2048),
+            nn.Linear(2048, num_frames * 576)
+    ).to(device)
+
+    intrinsic_embed = encoder_fn(rearrange(intrinsics, 'b f h w -> b (f h w)'))
+    intrinsic_embed = rearrange(intrinsic_embed.reshape((batch_size, num_frames, 576)), 'b f e -> f b e')
+
+    # test for splat inference
+    k_dict = {
+        'intrinsic_embeddings': intrinsic_embed,
+        'destroy_head': True,
+    }
 
     s = time.time()
-    print(flop_count_table(flops, max_depth=1))
+    output = model(input, **k_dict)
+    # [batch, embed_dim]
+
+    # print(flop_count_table(flops, max_depth=1))
     print(f'Time Cost: {time.time() - s}')
