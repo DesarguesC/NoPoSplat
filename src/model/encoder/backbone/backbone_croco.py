@@ -229,8 +229,7 @@ class AsymmetricCroCo(CroCoNet):
         device = context["image"].device
 
         pdb.set_trace()
-        view1, view2 = ({'img': context["image"][:, 0]}, # TODO: 为什么是 [:,0] ???
-                        {'img': context["image"][:, 1]})
+        view1, view2 = ({'img': context["image"][:, 0]}, {'img': context["image"][:, 1]})
 
         # camera embedding in the encoder
         if self.intrinsics_embed_loc == 'encoder' and self.intrinsics_embed_type == 'pixelwise':

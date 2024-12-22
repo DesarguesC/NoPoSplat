@@ -318,6 +318,7 @@ class VisionMamba(nn.Module):
 
     def forward_features(self, x, inference_params=None, **kwargs):
         x = self.patch_embed(x) # [b, embed_dim, frames, h/patch_size, w/patch_size]
+        # TODO: intrinsics嵌入在后面与之拼接，还是，嵌入于x拼接一起做投影
 
         B, C, T, H, W = x.shape # check shapes
         x = x.permute(0, 2, 3, 4, 1).reshape(B * T, H * W, C) # [(b * frames), (h/patch_size * w/patch_size), embed_dim]
@@ -350,7 +351,7 @@ class VisionMamba(nn.Module):
                     hidden_states, residual, inference_params=inference_params,
                     use_checkpoint=True
                 )
-            else: # √
+            else: # √ ~ encoder
                 hidden_states, residual = layer(
                     hidden_states, residual, inference_params=inference_params
                 )
@@ -382,7 +383,7 @@ class VisionMamba(nn.Module):
         x = self.forward_features(x, inference_params, **kwargs)
         # [batch, embed_dim]
         pdb.set_trace()
-        if not ('destroy_head' in kwargs and kwargs['destroy_head']):
+        if not kwargs.get('destroy_head', False):
             print('head used')
             x = self.head(self.head_drop(x), **kwargs) # destroy ?
         return x
@@ -399,8 +400,6 @@ def inflate_weight(weight_2d, time_dim, center=True):
         weight_3d = weight_2d.unsqueeze(2).repeat(1, 1, time_dim, 1, 1)
         weight_3d = weight_3d / time_dim
     return weight_3d
-
-
 def load_state_dict(model, state_dict, center=True):
     state_dict_3d = model.state_dict()
     pdb.set_trace()
@@ -437,8 +436,6 @@ def videomamba_tiny(pretrained=False, **kwargs):
         state_dict = torch.load(_MODELS["videomamba_t16_in1k"], map_location=device)
         load_state_dict(model, state_dict, center=True)
     return model
-
-
 @register_model
 def videomamba_small(pretrained=False, **kwargs):
     model = VisionMamba(
@@ -457,8 +454,6 @@ def videomamba_small(pretrained=False, **kwargs):
         state_dict = torch.load(_MODELS["videomamba_s16_in1k"], map_location=device)
         load_state_dict(model, state_dict, center=True)
     return model
-
-
 @register_model
 def videomamba_middle(pretrained=False, **kwargs):
     model = VisionMamba(
@@ -477,25 +472,6 @@ def videomamba_middle(pretrained=False, **kwargs):
         state_dict = torch.load(_MODELS["videomamba_m16_in1k"], map_location=device)
         load_state_dict(model, state_dict, center=True)
     return model
-
-
-"""
-{
-        'url': url: str = '',
-        'num_classes': 1000,
-        'input_size': (3, 224, 224),
-        'pool_size': None,
-        'crop_pct': 0.9,
-        'interpolation': 'bicubic',
-        'fixed_input_size': True,
-        'mean': IMAGENET_INCEPTION_MEAN,
-        'std': IMAGENET_INCEPTION_STD,
-        'first_conv': 'patch_embed.proj',
-        'classifier': 'head',
-        **kwargs,
-}
-"""
-
 @register_model
 def videomamba_base(pretrained=False, **kwargs):
     model = VisionMamba(
@@ -514,6 +490,24 @@ def videomamba_base(pretrained=False, **kwargs):
         state_dict = torch.load(_MODELS["videomamba_b16_in1k"], map_location=device)
         load_state_dict(model, state_dict, center=True)
     return model
+
+"""
+VideoMamba default configs
+    {
+            'url': url: str = '',
+            'num_classes': 1000,
+            'input_size': (3, 224, 224),
+            'pool_size': None,
+            'crop_pct': 0.9,
+            'interpolation': 'bicubic',
+            'fixed_input_size': True,
+            'mean': IMAGENET_INCEPTION_MEAN,
+            'std': IMAGENET_INCEPTION_STD,
+            'first_conv': 'patch_embed.proj',
+            'classifier': 'head',
+            **kwargs,
+    }
+"""
 
 mambas = {
     'tiny': videomamba_tiny,
@@ -545,7 +539,7 @@ class VideoMamba(nn.Module):
         self.seed = seed
         self.device = device
         self.num_frames = num_frames
-        self.mamba_model = VideoMambaModel(mamba_choice, num_frames, seed, device)
+        self.mamba_encoder = VideoMambaModel(mamba_choice, num_frames, seed, device)
         # frame, batch, 3, 3
         self.embed_dim = mamba_params[mamba_choice]['embed_dim']
         self.intrinsic_encoder = nn.Sequential(
@@ -555,6 +549,7 @@ class VideoMamba(nn.Module):
         # TODO: maps to [b, embed_dim, frames, h / patch_size, w / patch_size]
         # 「See Line - 319'forward_features'」
         # forward: in_embed = self.intrinsic_encoder(context["intrinsics"].flatten(2))
+        self.croco_decoder = None
 
     def forward(self,
                 context: dict, # {'image':..., 'intrinsics':...}
@@ -572,8 +567,9 @@ class VideoMamba(nn.Module):
             'intrinsic_embeddings': intrinsic_embed,
             'destroy_head': True
         }
-        mamba_hidden_state = self.mamba_model(context['video'], **args_dict)
-        # [batch, ]
+        mamba_hidden_state = self.mamba_encoder(context['video'], **args_dict) # [batch, frames*num_patches, embed_dim]
+        # frames * num_patches = frames * (height / patch_size) * (width / patch_size)
+
 
 
 
