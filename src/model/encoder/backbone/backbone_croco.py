@@ -99,14 +99,14 @@ class AsymmetricCroCo(CroCoNet):
         # transfer from encoder to decoder
         enc_embed_dim = enc_embed_dim + self.intrinsics_embed_decoder_dim
         self.decoder_embed = nn.Linear(enc_embed_dim, dec_embed_dim, bias=True)
-        # transformer for the decoder
+        # transformer for the decoderd
         self.dec_blocks = nn.ModuleList([
             DecoderBlock(dec_embed_dim, dec_num_heads, mlp_ratio=mlp_ratio, qkv_bias=True, norm_layer=norm_layer, norm_mem=norm_im2_in_dec, rope=self.rope)
             for i in range(dec_depth)])
         # final norm layer
         self.dec_norm = norm_layer(dec_embed_dim)
 
-    def load_state_dict(self, ckpt, **kw):
+    def load_state_dict(self, ckpt, **kw): # .load_state_dict(ckpt_weights, strict=False)
         # duplicate all weights for the second decoder if not present
         new_ckpt = dict(ckpt)
         if not any(k.startswith('dec_blocks2') for k in ckpt):

@@ -8,6 +8,10 @@ from torch import Tensor
 from typing import Optional, Mapping, Any
 import torch.utils.checkpoint as checkpoint
 
+from .croco.pos_embed import get_2d_sincos_pos_embed, RoPE2D
+from .croco.masking import RandomMask
+from .croco.blocks import Block, DecoderBlock, PatchEmbed
+
 from einops import rearrange
 from timm.models.vision_transformer import _cfg
 from timm.models.registry import register_model
@@ -17,7 +21,7 @@ from timm.models.layers import DropPath, to_2tuple
 from timm.models.vision_transformer import _load_weights
 
 import math, pdb
-
+from src.misc.weight_modify import checkpoint_filter_fn
 from mamba_ssm.modules.mamba_simple import Mamba
 
 try:
@@ -531,8 +535,43 @@ def VideoMambaModel(mamba_choice='middle', num_frames=20, seed=4217, device='cud
     model = mambas[mamba_choice](num_frames=num_frames).to(device)
     return model
 
+class CrocoDrcoder(nn.Module):
+    def __init__(self,
+                 enc_embed_dim,
+                 dec_embed_dim,
+                 dec_num_heads,
+                 dec_depth,
+                 mlp_ratio,
+                 norm_layer,
+                 norm_im2_in_dec
+                 ):
+        self.dec_depth = dec_depth
+        self.dec_embed_dim = dec_embed_dim
+        # transfer from encoder to decoder
+        self.decoder_embed = nn.Linear(enc_embed_dim + 0, dec_embed_dim, bias=True)
+        # transformer for the decoder
+        self.dec_blocks = nn.ModuleList([
+            DecoderBlock(dec_embed_dim, dec_num_heads, mlp_ratio=mlp_ratio, qkv_bias=True, norm_layer=norm_layer,
+                         norm_mem=norm_im2_in_dec, rope=self.rope)
+            for i in range(dec_depth)])
+        # final norm layer
+        self.dec_norm = norm_layer(dec_embed_dim)
+
 class VideoMamba(nn.Module):
-    def __init__(self, mamba_choice='middle', num_frames=20, seed=4217, device='cuda'):
+    def __init__(self,
+                 mamba_choice='middle',
+                 num_frames=20,
+                 seed=4217,
+                 dec_embed_dim=512,
+                 dec_depth=12,
+                 dec_num_heads=16,
+                 mlp_ratio=4,
+                 norm_layer=partial(nn.LayerNorm, eps=1e-6),
+                 norm_im2_in_dec=True,
+                 pos_embed='cosine',
+                 decoder_weights_path: str = None,
+                 device='cuda',
+        ):
         # TODO: 在制作数据的时候插入相同的stride
         # TODO: 如果在forward中随机丢弃stride？
         super().__init__()
@@ -541,15 +580,81 @@ class VideoMamba(nn.Module):
         self.num_frames = num_frames
         self.mamba_encoder = VideoMambaModel(mamba_choice, num_frames, seed, device)
         # frame, batch, 3, 3
-        self.embed_dim = mamba_params[mamba_choice]['embed_dim']
+        self.enc_embed_dim = mamba_params[mamba_choice]['embed_dim']
+        self.enc_patch_size = mamba_params[mamba_choice]['patch_size']
         self.intrinsic_encoder = nn.Sequential(
             nn.Linear(9 * num_frames, 2048),
-            nn.Linear(2048, num_frames * self.embed_dim)
+            nn.Linear(2048, num_frames * self.enc_embed_dim)
         )
         # TODO: maps to [b, embed_dim, frames, h / patch_size, w / patch_size]
         # 「See Line - 319'forward_features'」
         # forward: in_embed = self.intrinsic_encoder(context["intrinsics"].flatten(2))
         self.croco_decoder = None
+
+        self.pos_embed = pos_embed
+        if pos_embed == 'cosine':
+            # positional embedding of the decoder
+            dec_pos_embed = get_2d_sincos_pos_embed(dec_embed_dim, int(self.patch_embed.num_patches ** .5),
+                                                    n_cls_token=0)
+            self.register_buffer('dec_pos_embed', torch.from_numpy(dec_pos_embed).float())
+            # pos embedding in each block
+            self.rope = None  # nothing for cosine
+        elif pos_embed.startswith('RoPE'):  # eg RoPE100
+            self.dec_pos_embed = None  # nothing to add in the decoder with RoPE
+            if RoPE2D is None: raise ImportError(
+                "Cannot find cuRoPE2D, please install it following the README instructions")
+            freq = float(pos_embed[len('RoPE'):])
+            self.rope = RoPE2D(freq=freq)
+        else:
+            raise NotImplementedError('Unknown pos_embed ' + pos_embed)
+
+        # masked tokens
+        self._set_mask_token(dec_embed_dim)
+        # decoder
+        self.croco_decoder = CrocoDrcoder(self.enc_embed_dim, self.dec_embed_dim, dec_num_heads, dec_depth, mlp_ratio, norm_layer, norm_im2_in_dec)
+        # initializer weights
+        self.initialize_weights()
+        if decoder_weights_path is not None:
+            self.load_decoder(decoder_weights_path) # initialize
+
+
+    def _set_mask_generator(self, num_patches, mask_ratio):
+        self.mask_generator = RandomMask(num_patches, mask_ratio)
+    def _set_mask_token(self, dec_embed_dim):
+        self.mask_token = nn.Parameter(torch.zeros(1, 1, dec_embed_dim))
+
+
+    def initialize_weights(self):
+        # patch embed
+        self.patch_embed._init_weights()
+        # mask tokens
+        if self.mask_token is not None: torch.nn.init.normal_(self.mask_token, std=.02)
+        # linears and layer norms
+        self.apply(self._init_weights)
+
+    def load_decoder(self, weights_path, **kwargs):
+        assert os.path.exists(weights_path), f'file not exists: {weights_path}'
+        ckpt_weights = torch.load(weights_path)
+        # TODO: load decoder models | 参考backbone_croco中的load_state_dict，加载_set_decoder中的模块（好像还有些）
+        # 要'dec_blocks' | 剩下看 'dec_blocks' not in key and 'enc_bloacks' not in key
+        ckpt_weights = torch.load(weights_path)
+        if 'model' in ckpt_weights:
+            ckpt_weights = ckpt_weights['model']
+            ckpt_weights = checkpoint_filter_fn(ckpt_weights, self.croco_decoder)  # 填充权重
+            missing_keys, unexpected_keys = self.croco_decoder.load_state_dict(ckpt_weights, strict=False)
+        elif 'state_dict' in ckpt_weights:
+            pdb.set_trace()
+            ckpt_weights = ckpt_weights['state_dict'] # backbone_mamba.py - Line 647
+            ckpt_weights = {f'CrocoDecoder.{k[17:]}': v for k, v in ckpt_weights.items() if k.startswith('encoder.backbone.')}
+            new_ckpt = dict(ckpt_weights)
+            if not any(k.startswith('dec_blocks2') for k in ckpt_weights):
+                for key, value in ckpt_weights.items():
+                    if key.startswith('dec_blocks'):
+                        new_ckpt[key.replace('dec_blocks', 'dec_blocks2')] = value
+            self.CrocoDecoder.load_state_dict(new_ckpt, strict=False)
+        else:
+            raise ValueError(f"Invalid checkpoint format: {weights_path}")
+
 
     def forward(self,
                 context: dict, # {'image':..., 'intrinsics':...}
@@ -567,9 +672,11 @@ class VideoMamba(nn.Module):
             'intrinsic_embeddings': intrinsic_embed,
             'destroy_head': True
         }
-        mamba_hidden_state = self.mamba_encoder(context['video'], **args_dict) # [batch, frames*num_patches, embed_dim]
+        mamba_hidden_state = self.mamba_encoder(context['video'], **args_dict)
+        # [batch, frames*num_patches, embed_dim]
         # frames * num_patches = frames * (height / patch_size) * (width / patch_size)
-
+        mamba_hidden_state = rearrange(mamba_hidden_state, 'b (f p) e -> b f p e', f=num_frames)
+        # [batch, frames, num_patches, embed_dim]
 
 
 
