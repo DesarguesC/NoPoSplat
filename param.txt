@@ -1,0 +1,7 @@
+# 需要修改的参数
+
+dpt-dynamic # 过去的版本
+dpt-video
+dpt-video-hierarchical
+pts3d-dynamit # 过去的版本
+pts3d-video
