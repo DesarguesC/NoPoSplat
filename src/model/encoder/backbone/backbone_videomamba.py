@@ -626,7 +626,7 @@ class VideoMamba(nn.Module):
         # masked tokens
         self._set_mask_token(dec_embed_dim)
         # decoder
-        self.croco_decoder = CrocoDrcoder(self.enc_embed_dim, self.dec_embed_dim, dec_num_heads, dec_depth, mlp_ratio, norm_layer, norm_im2_in_dec)
+        self.croco_decoder = CrocoDrcoder(self.enc_embed_dim, dec_embed_dim, dec_num_heads, dec_depth, mlp_ratio, norm_layer, norm_im2_in_dec)
         # initializer weights
         self.initialize_weights()
         if decoder_weights_path is not None:
@@ -711,8 +711,6 @@ class VideoMamba(nn.Module):
         final_output[-1] = rearrange(last_feature, '(b f) p e -> b f p e', b=b, f=f)
 
         return final_output
-
-
 
     def forward(self,
                 context: dict, # {'image':..., 'intrinsics':...}

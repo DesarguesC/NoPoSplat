@@ -2,7 +2,7 @@ from typing import Optional
 
 from .encoder import Encoder
 from .encoder_noposplat import EncoderNoPoSplatCfg, EncoderNoPoSplat
-from .encoder_vit import EncoderVideoSplat
+from .encoder_videosplat import EncoderVideoSplat
 from .encoder_noposplat_multi import EncoderNoPoSplatMulti
 from .visualization.encoder_visualizer import EncoderVisualizer
 import torch

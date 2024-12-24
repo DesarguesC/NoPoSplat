@@ -65,7 +65,6 @@ class EncoderNoPoSplat(Encoder[EncoderNoPoSplatCfg]):
 
     def __init__(self, cfg: EncoderNoPoSplatCfg) -> None:
         super().__init__(cfg)
-
         self.backbone = get_backbone(cfg.backbone, 3)
 
         self.pose_free = cfg.pose_free

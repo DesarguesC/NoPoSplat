@@ -98,7 +98,7 @@ class PixelwiseTaskWithDPT(nn.Module):
         return out
 
 
-def create_dpt_head(net, has_conf=False, out_nchan=3, postprocess_func=postprocess):
+def create_dpt_head(net, has_conf=False, out_nchan=3, postprocess_func=postprocess, use_mamba=False, static_required=True):
     """
     return PixelwiseTaskWithDPT for given net params
     """
@@ -107,7 +107,11 @@ def create_dpt_head(net, has_conf=False, out_nchan=3, postprocess_func=postproce
     feature_dim = 256
     last_dim = feature_dim//2
     ed = net.enc_embed_dim
-    dd = net.dec_embed_dim
+    dd = net.croco_decoder.dec_embed_dim if use_mamba else net.dec_embed_dim
+
+    if use_mamba and static_required: ...
+
+
     return PixelwiseTaskWithDPT(num_channels=out_nchan + has_conf,
                                 feature_dim=feature_dim,
                                 last_dim=last_dim,

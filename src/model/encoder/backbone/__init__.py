@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 import torch.nn as nn
 
 from .backbone import Backbone
@@ -20,4 +20,8 @@ BackboneCfg = BackboneResnetCfg | BackboneDinoCfg | BackboneCrocoCfg
 
 
 def get_backbone(cfg: BackboneCfg, d_in: int = 3) -> nn.Module:
-    return BACKBONES[cfg.name](cfg, d_in)
+    backbone = BACKBONES[cfg.name]
+    return backbone(cfg, d_in) if isinstance(backbone, Optional[BackboneResnet, BackboneDino]) \
+            else backbone(cfg) if isinstance(backbone, Optional[AsymmetricCroCo, AsymmetricCroCoMulti]) \
+            else backbone() if isinstance(backbone, VideoMamba)\
+            else None

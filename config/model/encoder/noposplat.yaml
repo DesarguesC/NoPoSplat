@@ -28,6 +28,6 @@ visualizer:
 
 apply_bounds_shim: true
 
-gs_params_head_type: dpt_gs
+gs_params_head_type: dpt-video # dpt-video-hierarchical
 pose_free: true
 pretrained_weights: ""
