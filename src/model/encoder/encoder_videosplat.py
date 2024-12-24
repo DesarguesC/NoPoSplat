@@ -62,11 +62,12 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         self.gs_params_head_type = cfg.gs_params_head_type
 
         head_type = 'dpt-video' if cfg.gs_params_head_type == 'dpt-video' else 'dpt'
-        output_type = 'pts3d-video' if cfg.gs_params_head_type == 'dpt-video' else 'pts3d-video-hierarchical'
+        output_type = 'pts3d-video' if cfg.gs_params_head_type == 'dpt-video' else \
+                      'pts3d-video-hierarchical' if cfg.gs_params_head_type == 'dpt-video-hierarchical' else 'dpt'
 
         self.set_center_head(output_mode=output_type, head_type=head_type, landscape_only=True, depth_mode=('exp', -inf, inf), conf_mode=None, )
         # -> self.downstream_head1, self.downstream_head2, self.head1, self.head2
-        self.set_gs_params_head(cfg, cfg.gs_params_head_type)
+        self.set_gs_params_head(cfg, head_type, output_type)
         # -> self.gaussian_param_head, self.gaussian_param_head2
     
     def set_center_head(self, output_mode, head_type, landscape_only, depth_mode, conf_mode):
@@ -92,7 +93,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         else:
             raise NotImplementedError('check parameters at configs, listed in \'param.txt\'')
 
-    def set_gs_params_head(self, cfg, head_type):
+    def set_gs_params_head(self, cfg, head_type, output_mode):
         if head_type == 'linear':
             self.gaussian_param_head = nn.Sequential(
                 nn.ReLU(),
@@ -109,13 +110,14 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         elif head_type == 'dpt_gs':
             self.gaussian_param_head = head_factory(head_type, 'gs_params', self.backbone, has_conf=False, out_nchan=self.raw_gs_dim)
             self.gaussian_param_head2 = head_factory(head_type, 'gs_params', self.backbone, has_conf=False, out_nchan=self.raw_gs_dim)
-        elif head_type == 'dpt-video' and output_type ==:
-            self.gaussian_param_head = ...
-        elif head_type == 'dpt-video-hierarchical':
-            ...
+        elif self.head_control_type == SOLE_HEAD:
+            self.gaussian_param_head_sole = head_factory(head_type, output_mode, self.backbone, has_conf=False, static_required=False) # 返回sole dynamic head
+        elif self.head_control_type == MULTI_HEAD:
+            self.gaussian_param_head_static = head_factory(head_type, output_mode, self.backbone, has_conf=False, static_required=True) # 返回static head
+            self.gaussian_param_head_dynamic = head_factory(head_type, output_mode, self.backbone, has_conf=False, static_required=False) # 返回dynamic head
         else:
             raise NotImplementedError(f"unexpected {head_type=}")
-        
+
     def map_pdf_to_opacity(
         self,
         pdf: Float[Tensor, " *batch"],
@@ -131,12 +133,12 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         # Map the probability density to an opacity.
         return 0.5 * (1 - (1 - pdf) ** exponent + pdf ** (1 / exponent))
 
-    def _downstream_head(self, head_name: str, decout, img_shape, ray_embedding=None):
-        # decout: decoded token list
-        # B, S, D = decout[-1].shape
-        # img_shape = tuple(map(int, img_shape))
-        head = getattr(self, f'head_{head_name}')
-        return head(decout, img_shape, ray_embedding=ray_embedding)
+    # def _downstream_head(self, head_name: str, decout, img_shape, ray_embedding=None):
+    #     # decout: decoded token list
+    #     # B, S, D = decout[-1].shape
+    #     # img_shape = tuple(map(int, img_shape))
+    #     head = getattr(self, f'head_{head_name}')
+    #     return head(decout, img_shape, ray_embedding=ray_embedding)
     
     # SOLE_HEAD works at ↓
     def forward_one(
@@ -145,16 +147,21 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         global_step: int = 0,
         visualization_dump: Optional[dict] = None,
     ) -> Gaussians:
+
+        """
+            Available:
+                center-head:
+                    self.downstream_head ~ self.head_sole
+                param-head:
+                    self.gaussian_param_head_sole
+        """
+
         video = context['video']
         device = video.device
         b, f, _, h, w = video.shape
 
-        # Encode the context images.
         # TODO: [AIR] 要有3个head，多一个diffusion的
-        #
         dec_feature, views = self.backbone(context, return_views=True) # PE & Proj
-        # src.model/encoder/backbone/backbone_croco.py - line: 222
-        # 完成了：嵌入、feature回归、解码 -> tokens
         """
             views = {
                 'shape': shape # [batch, frame, channel(=3)]
@@ -163,31 +170,29 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
                 'embeddings': embeddings    # [num_patches, frames, batch, embed_dim]
             }
         """
-        pdb.set_trace()
-        shape = views['shape']
-        with torch.cuda.amp.autocast(enabled=False):
-            all_mean_res = []
-            all_other_params = []
-            # only sole dynamic head
-            for i in range(f):
-                res_list = self._downstream_head(2, [tok[:, i].float() for tok in dec_feat], shape[:, i])
-                all_mean_res.append(res2)
 
-            # for the 3DGS heads
-            if self.gs_params_head_type == 'dpt_gs':
-                GS_res1 = self.gaussian_param_head([tok[:, 0].float() for tok in dec_feat],
-                                                   all_mean_res[0]['pts3d'].permute(0, 3, 1, 2), images[:, 0, :3],
-                                                   shape[0, 0].cpu().tolist())
-                GS_res1 = rearrange(GS_res1, "b d h w -> b (h w) d")
-                all_other_params.append(GS_res1)
-                for i in range(1, v):
-                    GS_res2 = self.gaussian_param_head2([tok[:, i].float() for tok in dec_feat],
-                                                        all_mean_res[i]['pts3d'].permute(0, 3, 1, 2), images[:, i, :3],
-                                                        shape[0, i].cpu().tolist())
-                    GS_res2 = rearrange(GS_res2, "b d h w -> b (h w) d")
-                    all_other_params.append(GS_res2)
-            else:
-                raise NotImplementedError(f"unexpected {self.gs_params_head_type=}")
+        video = views['video']
+        shape = views['shape']
+        pdb.set_trace()
+        with torch.cuda.amp.autocast(enabled=False):
+            # only sole dynamic head
+            all_mean_res = [
+                self.head_sole(
+                    [tok[:, i].float() for tok in dec_feature],
+                    shape[:, i], ray_embedding=None
+                )
+                for i in range(f)
+            ]
+            all_other_params = [
+                rearrange(self.gaussian_param_head_sole(
+                    [tok[:, i].float() for tok in dec_feature],
+                    all_mean_res[i]['pts3d'].permute(0, 3, 1, 2),
+                    video[:, i, :3],
+                    shape[0, i].cpu().tolist()
+                ), "b d h w -> b (h w) d") # TODO: check the shape ← check & modify DPTAdapter
+                for i in range(f)
+            ]
+            # TODO: 形状都需要检查 → 'pts3d' ???
 
         pts_all = [all_mean_res_i['pts3d'] for all_mean_res_i in all_mean_res]
         pts_all = torch.stack(pts_all, dim=1)
@@ -211,7 +216,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         else:
             xy_ray, _ = sample_image_grid((h, w), device)
             xy_ray = rearrange(xy_ray, "h w xy -> (h w) () xy")
-            xy_ray = xy_ray[None, None, ...].expand(b, v, -1, -1, -1)
+            xy_ray = xy_ray[None, None, ...].expand(b, f, -1, -1, -1)
 
             gaussians = self.gaussian_adapter.forward(
                 rearrange(context["extrinsics"], "b v i j -> b v () () () i j"),
@@ -267,6 +272,16 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         global_step: int = 0,
         visualization_dump: Optional[dict] = None,
     ) -> Gaussians:
+
+        """
+            Available:
+                center-head:
+                    self.downstream_head_static ~ self.head_static
+                    self.downstream_head_dynamic ~ self.head_dynamic
+                param-head:
+                    self.gaussian_param_head_static
+                    self.gaussian_param_head_dynamic
+        """
         device = context["image"].device
         b, v, _, h, w = context["image"].shape
 
@@ -285,6 +300,8 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         """
 
         pdb.set_trace()
+        video = views['video']
+        shpe = views['shape']
         with torch.cuda.amp.autocast(enabled=False):
             all_mean_res = []
             all_other_params = []
