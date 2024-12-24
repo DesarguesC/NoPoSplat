@@ -24,6 +24,10 @@ from .visualization.encoder_visualizer_epipolar_cfg import EncoderVisualizerEpip
 
 
 inf = float('inf')
+UNDEFINED_VALUE = 'yet this value has not been set'
+SOLE_HEAD = 'now we are using single dynamic gaussian head'
+MULTI_HEAD = 'now we are using multi gaussian heads: static & dynamic'
+
 
 def rearrange_head(feat, patch_size, H, W):
     B = feat.shape[0]
@@ -38,7 +42,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
     def __init__(self, cfg: EncoderNoPoSplatCfg) -> None:
         super().__init__(cfg)
-        self.head_control_type = 1
+        self.head_control_type = UNDEFINED_VALUE # unset
         """
             1: 只有一种head，需要加上时间编码接口
             2: 有两种head，静态head无需时间编码，动态head需要时间编码接口（与1用的相同）
@@ -57,7 +61,10 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
         self.gs_params_head_type = cfg.gs_params_head_type
 
-        self.set_center_head(output_mode='pts3d-video', head_type='dpt-video', landscape_only=True, depth_mode=('exp', -inf, inf), conf_mode=None, )
+        head_type = 'dpt-video' if cfg.gs_params_head_type == 'dpt-video' else 'dpt'
+        output_type = 'pts3d-video' if cfg.gs_params_head_type == 'dpt-video' else 'pts3d-video-hierarchical'
+
+        self.set_center_head(output_mode=output_type, head_type=head_type, landscape_only=True, depth_mode=('exp', -inf, inf), conf_mode=None, )
         # -> self.downstream_head1, self.downstream_head2, self.head1, self.head2
         self.set_gs_params_head(cfg, cfg.gs_params_head_type)
         # -> self.gaussian_param_head, self.gaussian_param_head2
@@ -68,11 +75,20 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         # allocate heads
         # TODO: 先考虑只用static head，dynamic用来算[R|T]
         if output_mode == 'pts3d-video' and head_type == 'dpt-video':
-            self.downstream_head = head_factory(head_type, output_mode, self.backbone, has_conf=bool(conf_mode), static_required=False)
-            self.head_static = transpose_to_landscape(self.downstream_head_static, activate=landscape_only)
+            self.head_control_type = SOLE_HEAD
+
+            self.downstream_head = head_factory(head_type, output_mode, self.backbone, has_conf=bool(conf_mode), static_required=False) # 返回sole dynamic head
+            self.head_sole = transpose_to_landscape(self.downstream_head, activate=landscape_only)
+
         elif output_mode == 'pts3d-video-hierarchical' and head_type == 'dpt-video':
-            self.downstream_head_dynamic = head_factory(head_type, output_mode, self.backbone, has_conf=bool(conf_mode), static_required=True)
+            self.head_control_type = MULTI_HEAD
+
+            self.downstream_head_static = head_factory(head_type, output_mode, self.backbone, has_conf=bool(conf_mode), static_required=True) # 返回static head
+            self.head_static = transpose_to_landscape(self.downstream_head_static, activate=landscape_only)
+
+            self.downstream_head_dynamic = head_factory(head_type, output_mode, self.backbone, has_conf=bool(conf_mode), static_required=False) # 返回dynamic head
             self.head_dynamic = transpose_to_landscape(self.downstream_head_dynamic, activate=landscape_only)
+
         else:
             raise NotImplementedError('check parameters at configs, listed in \'param.txt\'')
 
@@ -93,7 +109,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         elif head_type == 'dpt_gs':
             self.gaussian_param_head = head_factory(head_type, 'gs_params', self.backbone, has_conf=False, out_nchan=self.raw_gs_dim)
             self.gaussian_param_head2 = head_factory(head_type, 'gs_params', self.backbone, has_conf=False, out_nchan=self.raw_gs_dim)
-        elif head_type == 'dpt-video':
+        elif head_type == 'dpt-video' and output_type ==:
             self.gaussian_param_head = ...
         elif head_type == 'dpt-video-hierarchical':
             ...
@@ -122,64 +138,65 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         head = getattr(self, f'head_{head_name}')
         return head(decout, img_shape, ray_embedding=ray_embedding)
     
+    # SOLE_HEAD works at ↓
     def forward_one(
         self,
         context: dict,
         global_step: int = 0,
         visualization_dump: Optional[dict] = None,
     ) -> Gaussians:
-        device = context["image"].device
-        b, v, _, h, w = context["image"].shape
+        video = context['video']
+        device = video.device
+        b, f, _, h, w = video.shape
 
         # Encode the context images.
         # TODO: [AIR] 要有3个head，多一个diffusion的
         #
-        dec_feature_list, views = self.backbone(context, return_views=True) # PE & Proj
+        dec_feature, views = self.backbone(context, return_views=True) # PE & Proj
         # src.model/encoder/backbone/backbone_croco.py - line: 222
         # 完成了：嵌入、feature回归、解码 -> tokens
         """
             views = {
-                'video': context['video'],
-                'position': pos,
-                'embeddings': embeddings
+                'shape': shape # [batch, frame, channel(=3)]
+                'video': context['video'],  # [batch, frames, height, width]
+                'position': pos,            # [batch, frames, num_patcher, embed_dim]
+                'embeddings': embeddings    # [num_patches, frames, batch, embed_dim]
             }
         """
-
         pdb.set_trace()
+        shape = views['shape']
         with torch.cuda.amp.autocast(enabled=False):
-            # 这里使用head
-            res_list = self._downstream_head()
-            res1 = self._downstream_head(1, [tok.float() for tok in dec1], shape1) # -> self.head1
-            res2 = self._downstream_head(2, [tok.float() for tok in dec2], shape2) # -> self.head2
+            all_mean_res = []
+            all_other_params = []
+            # only sole dynamic head
+            for i in range(f):
+                res_list = self._downstream_head(2, [tok[:, i].float() for tok in dec_feat], shape[:, i])
+                all_mean_res.append(res2)
 
             # for the 3DGS heads
-            if self.gs_params_head_type == 'linear':
-                GS_res1 = rearrange_head(self.gaussian_param_head(dec1[-1]), self.patch_size, h, w)
-                GS_res2 = rearrange_head(self.gaussian_param_head2(dec2[-1]), self.patch_size, h, w)
-            elif self.gs_params_head_type == 'dpt':
-                GS_res1 = self.gaussian_param_head([tok.float() for tok in dec1], shape1[0].cpu().tolist())
+            if self.gs_params_head_type == 'dpt_gs':
+                GS_res1 = self.gaussian_param_head([tok[:, 0].float() for tok in dec_feat],
+                                                   all_mean_res[0]['pts3d'].permute(0, 3, 1, 2), images[:, 0, :3],
+                                                   shape[0, 0].cpu().tolist())
                 GS_res1 = rearrange(GS_res1, "b d h w -> b (h w) d")
-                GS_res2 = self.gaussian_param_head2([tok.float() for tok in dec2], shape2[0].cpu().tolist())
-                GS_res2 = rearrange(GS_res2, "b d h w -> b (h w) d")
-            elif self.gs_params_head_type == 'dpt_gs': # √
-                GS_res1 = self.gaussian_param_head([tok.float() for tok in dec1], res1['pts3d'].permute(0, 3, 1, 2), view1['img'][:, :3], shape1[0].cpu().tolist())
-                GS_res1 = rearrange(GS_res1, "b d h w -> b (h w) d")
-                GS_res2 = self.gaussian_param_head2([tok.float() for tok in dec2], res2['pts3d'].permute(0, 3, 1, 2), view2['img'][:, :3], shape2[0].cpu().tolist())
-                GS_res2 = rearrange(GS_res2, "b d h w -> b (h w) d")
+                all_other_params.append(GS_res1)
+                for i in range(1, v):
+                    GS_res2 = self.gaussian_param_head2([tok[:, i].float() for tok in dec_feat],
+                                                        all_mean_res[i]['pts3d'].permute(0, 3, 1, 2), images[:, i, :3],
+                                                        shape[0, i].cpu().tolist())
+                    GS_res2 = rearrange(GS_res2, "b d h w -> b (h w) d")
+                    all_other_params.append(GS_res2)
+            else:
+                raise NotImplementedError(f"unexpected {self.gs_params_head_type=}")
 
-        # 前面已经跑过GS head了
-        pdb.set_trace()
-
-        pts3d1 = res1['pts3d'] # pts: points?
-        pts3d1 = rearrange(pts3d1, "b h w d -> b (h w) d")
-        pts3d2 = res2['pts3d']
-        pts3d2 = rearrange(pts3d2, "b h w d -> b (h w) d")
-        pts_all = torch.stack((pts3d1, pts3d2), dim=1)
+        pts_all = [all_mean_res_i['pts3d'] for all_mean_res_i in all_mean_res]
+        pts_all = torch.stack(pts_all, dim=1)
+        pts_all = rearrange(pts_all, "b v h w xyz -> b v (h w) xyz")
         pts_all = pts_all.unsqueeze(-2)  # for cfg.num_surfaces
 
         depths = pts_all[..., -1].unsqueeze(-1)
 
-        gaussians = torch.stack([GS_res1, GS_res2], dim=1)
+        gaussians = torch.stack(all_other_params, dim=1)
         gaussians = rearrange(gaussians, "... (srf c) -> ... srf c", srf=self.cfg.num_surfaces)
         densities = gaussians[..., 0].sigmoid().unsqueeze(-1)
 
@@ -243,6 +260,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
             ),
         )
 
+    # MULTI_HEAD works at ↓
     def forward_two(
         self,
         context: dict,
@@ -268,39 +286,38 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
         pdb.set_trace()
         with torch.cuda.amp.autocast(enabled=False):
-            # 这里使用head
-            res_list = self._downstream_head()
-            res1 = self._downstream_head(1, [tok.float() for tok in dec1], shape1) # -> self.head1
-            res2 = self._downstream_head(2, [tok.float() for tok in dec2], shape2) # -> self.head2
+            all_mean_res = []
+            all_other_params = []
+            res1 = self._downstream_head(1, [tok[:, 0].float() for tok in dec_feat], shape[:, 0])
+            all_mean_res.append(res1)
+            for i in range(1, v):
+                res2 = self._downstream_head(2, [tok[:, i].float() for tok in dec_feat], shape[:, i])
+                all_mean_res.append(res2)
 
             # for the 3DGS heads
-            if self.gs_params_head_type == 'linear':
-                GS_res1 = rearrange_head(self.gaussian_param_head(dec1[-1]), self.patch_size, h, w)
-                GS_res2 = rearrange_head(self.gaussian_param_head2(dec2[-1]), self.patch_size, h, w)
-            elif self.gs_params_head_type == 'dpt':
-                GS_res1 = self.gaussian_param_head([tok.float() for tok in dec1], shape1[0].cpu().tolist())
+            if self.gs_params_head_type == 'dpt_gs':
+                GS_res1 = self.gaussian_param_head([tok[:, 0].float() for tok in dec_feat],
+                                                   all_mean_res[0]['pts3d'].permute(0, 3, 1, 2), images[:, 0, :3],
+                                                   shape[0, 0].cpu().tolist())
                 GS_res1 = rearrange(GS_res1, "b d h w -> b (h w) d")
-                GS_res2 = self.gaussian_param_head2([tok.float() for tok in dec2], shape2[0].cpu().tolist())
-                GS_res2 = rearrange(GS_res2, "b d h w -> b (h w) d")
-            elif self.gs_params_head_type == 'dpt_gs': # √
-                GS_res1 = self.gaussian_param_head([tok.float() for tok in dec1], res1['pts3d'].permute(0, 3, 1, 2), view1['img'][:, :3], shape1[0].cpu().tolist())
-                GS_res1 = rearrange(GS_res1, "b d h w -> b (h w) d")
-                GS_res2 = self.gaussian_param_head2([tok.float() for tok in dec2], res2['pts3d'].permute(0, 3, 1, 2), view2['img'][:, :3], shape2[0].cpu().tolist())
-                GS_res2 = rearrange(GS_res2, "b d h w -> b (h w) d")
+                all_other_params.append(GS_res1)
+                for i in range(1, v):
+                    GS_res2 = self.gaussian_param_head2([tok[:, i].float() for tok in dec_feat],
+                                                        all_mean_res[i]['pts3d'].permute(0, 3, 1, 2), images[:, i, :3],
+                                                        shape[0, i].cpu().tolist())
+                    GS_res2 = rearrange(GS_res2, "b d h w -> b (h w) d")
+                    all_other_params.append(GS_res2)
+            else:
+                raise NotImplementedError(f"unexpected {self.gs_params_head_type=}")
 
-        # 前面已经跑过GS head了
-        pdb.set_trace()
-
-        pts3d1 = res1['pts3d'] # pts: points?
-        pts3d1 = rearrange(pts3d1, "b h w d -> b (h w) d")
-        pts3d2 = res2['pts3d']
-        pts3d2 = rearrange(pts3d2, "b h w d -> b (h w) d")
-        pts_all = torch.stack((pts3d1, pts3d2), dim=1)
+        pts_all = [all_mean_res_i['pts3d'] for all_mean_res_i in all_mean_res]
+        pts_all = torch.stack(pts_all, dim=1)
+        pts_all = rearrange(pts_all, "b v h w xyz -> b v (h w) xyz")
         pts_all = pts_all.unsqueeze(-2)  # for cfg.num_surfaces
 
         depths = pts_all[..., -1].unsqueeze(-1)
 
-        gaussians = torch.stack([GS_res1, GS_res2], dim=1)
+        gaussians = torch.stack(all_other_params, dim=1)
         gaussians = rearrange(gaussians, "... (srf c) -> ... srf c", srf=self.cfg.num_surfaces)
         densities = gaussians[..., 0].sigmoid().unsqueeze(-1)
 
@@ -371,9 +388,9 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
             global_step: int = 0,
             visualization_dump: Optional[dict] = None,
     ) -> Gaussians:
-        if self.head_control_type == 1:
+        if self.head_control_type == SOLE_HEAD:
             return self.forward_one(context, global_step, visualization_dump)
-        elif self.head_control_type == 2:
+        elif self.head_control_type == MULTI_HEAD:
             return self.forward_two(context, global_step, visualization_dump)
         else:
             raise NotImplementedError

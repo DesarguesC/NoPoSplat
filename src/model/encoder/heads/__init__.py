@@ -16,6 +16,7 @@ def head_factory(head_type, output_mode, net, has_conf=False, out_nchan=3, stati
         return LinearPts3d(net, has_conf)
     elif head_type == 'dpt' and output_mode == 'pts3d': # √
         return create_dpt_head(net, has_conf=has_conf)
+    # TODO: static & dynamic 的具体实现有待商榷，以及时间编码如何加入；先结局前面的代码结构问题
     elif head_type == 'dpt-video' and output_mode == 'pts3d-video': # only sole dynamic head
         assert not static_required, 'illegal access to static gaussian head.'
         pdb.set_trace()

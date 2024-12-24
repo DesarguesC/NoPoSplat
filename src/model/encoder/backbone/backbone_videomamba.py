@@ -323,6 +323,10 @@ class VisionMamba(nn.Module):
         _load_weights(self, checkpoint_path, prefix)
 
     def forward_features(self, x, inference_params=None, **kwargs):
+        # 我做的是，将intrinsic做位置嵌入后与x在patch维度拼接，也算一个和过去工作的区别；过去工作：intrinsic直接和image在channel(=3)维度拼接，再一起位置编码
+        B, F, C, H, W = x.shape
+        shape_all = torch.tensor(H)[None].repeat(B * C, 1)  # TODO: 考虑用patch开？(→迁移到if中)
+        # batch * frames
         pos = self.patch_embed(x) # [b, embed_dim, frames, h/patch_size, w/patch_size]
         # TODO: intrinsics嵌入在后面与之拼接，还是，嵌入于x拼接一起做投影
 
@@ -338,9 +342,10 @@ class VisionMamba(nn.Module):
         if 'intrinsic_embeddings' in kwargs:
             # x = x + kwargs['intrinsic_embeddings'] # TODO: 可以加类似deformable gs里随迭代次数波动的正态噪声
             embeddings = rearrange(repeat(kwargs['intrinsic_embeddings'][None,:], '1 ... -> c ...', c=p), 'p f b e -> (b f) p e')
-            # [frames, batch, embed_dim] -> [num_patches+1, frames, batch, embed]
+            # [frames, batch, embed_dim] -> [num_patches+1, frames, batch, embed_dim] -> [batch*frames, num_patches, embed_dim]
             x = torch.cat([x, embeddings], dim=0)
-            embeddings = deepcopy(x)
+            embeddings = deepcopy(x[:, 1:]) # [num_patches, frames, batch, embed_dim]
+
 
         # temporal pos
         cls_tokens = x[:B, :1, :]
@@ -390,7 +395,8 @@ class VisionMamba(nn.Module):
         # return only cls token
         ret_state = hidden_states[:, 1:] if kwargs.get('destroy_head', False) else hidden_states[:, 0, :]
 
-        return (ret_state, pos, embeddings) \
+        shape = rearrange(shape_all, '(b f) c -> b f c', b=B, f=F)
+        return (ret_state, pos, embeddings, shape) \
             if kwargs.get('return_pos', False) and kwargs.get('intrinsic_embeddings', None) is not None \
             else ret_state
 
@@ -717,7 +723,7 @@ class VideoMamba(nn.Module):
                 symmetrize_batch=False, # False
                 return_views=False, # True
                 ):
-        b, f, _, h, w = context['video'].shaape
+        b, f, _, h, w = context['video'].shape
         b_, f_, _, h_, w_ = context['intrinsics'].shape
         assert h == w, f'width unequal to height: h = {h}, w = {w}'
         assert f == f_ and b == b_, (f'videos and intrinsics mismatched at the frame: (f, f_) = {(f, f_)}')
@@ -729,7 +735,7 @@ class VideoMamba(nn.Module):
             'destroy_head': True,
             'return_pos': True,
         }
-        mamba_feature, pos, embeddings = self.mamba_encoder(context['video'], **args_dict) # TODO: 返回每个patch的PE
+        mamba_feature, pos, embeddings, shape = self.mamba_encoder(context['video'], **args_dict) # TODO: 返回每个patch的PE
         """
             mamba_hidden_state: [batch, frames * num_patches, embed_dim]
                 → frames * num_patches = frames * (h / patch_size) * (w / patch_size)
@@ -748,9 +754,10 @@ class VideoMamba(nn.Module):
         dec_feature_list = list(torch.cat(dec_list, dim=0).chunk(b))
 
         views = {
+            'shape': shape,
             'video': context['video'],
             'position': pos,
-            'embeddings': embeddings
+            'embeddings': embeddings # [num_patches, frames, batch, embed_dim]
         }
         return (dec_feature_list, views) if return_views else dec_feature_list
         # TODO: dec1, dec2, shape1, shape2, view1, view2 = self.backbone(context, return_views=True)  # PE & Proj
