@@ -8,6 +8,8 @@ from torch import Tensor
 from typing import Optional, Mapping, Any
 import torch.utils.checkpoint as checkpoint
 
+from copy import deepcopy
+
 from .croco.pos_embed import get_2d_sincos_pos_embed, RoPE2D
 from .croco.masking import RandomMask
 from .croco.blocks import Block, DecoderBlock, PatchEmbed
@@ -321,19 +323,24 @@ class VisionMamba(nn.Module):
         _load_weights(self, checkpoint_path, prefix)
 
     def forward_features(self, x, inference_params=None, **kwargs):
-        x = self.patch_embed(x) # [b, embed_dim, frames, h/patch_size, w/patch_size]
+        pos = self.patch_embed(x) # [b, embed_dim, frames, h/patch_size, w/patch_size]
         # TODO: intrinsics嵌入在后面与之拼接，还是，嵌入于x拼接一起做投影
 
-        B, C, T, H, W = x.shape # check shapes
-        x = x.permute(0, 2, 3, 4, 1).reshape(B * T, H * W, C) # [(b * frames), (h/patch_size * w/patch_size), embed_dim]
+        B, C, T, H, W = pos.shape # check shapes
+        x = pos.permute(0, 2, 3, 4, 1).reshape(B * T, H * W, C) # [(b * frames), (h/patch_size * w/patch_size), embed_dim]
         # [b * frames, 1, embed_dim]
         # TODO: 用CAT[cls_token, intrinsic_embed] ?
         cls_token = self.cls_token.expand(x.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         x = torch.cat((cls_token, x), dim=1)
         pdb.set_trace()
-        x = x + self.pos_embed # [frames, num_patches+1, embed_dim]
+        x = x + self.pos_embed # [b*frames, num_patches+1, embed_dim]
+        _, p, e = x.shape
         if 'intrinsic_embeddings' in kwargs:
-            x = x + kwargs['intrinsic_embeddings'] # TODO: 可以加类似deformable gs里随迭代次数波动的正态噪声
+            # x = x + kwargs['intrinsic_embeddings'] # TODO: 可以加类似deformable gs里随迭代次数波动的正态噪声
+            embeddings = rearrange(repeat(kwargs['intrinsic_embeddings'][None,:], '1 ... -> c ...', c=p), 'p f b e -> (b f) p e')
+            # [frames, batch, embed_dim] -> [num_patches+1, frames, batch, embed]
+            x = torch.cat([x, embeddings], dim=0)
+            embeddings = deepcopy(x)
 
         # temporal pos
         cls_tokens = x[:B, :1, :]
@@ -381,16 +388,23 @@ class VisionMamba(nn.Module):
         # hidden_states: [batch, frames*num_patches+1, embed_dim]
         pdb.set_trace()
         # return only cls token
-        return hidden_states[:, 1:] if kwargs.get('destroy_head', False) else hidden_states[:, 0, :]
+        ret_state = hidden_states[:, 1:] if kwargs.get('destroy_head', False) else hidden_states[:, 0, :]
+
+        return (ret_state, pos, embeddings) \
+            if kwargs.get('return_pos', False) and kwargs.get('intrinsic_embeddings', None) is not None \
+            else ret_state
 
     def forward(self, x, inference_params=None, **kwargs):
-        x = self.forward_features(x, inference_params, **kwargs)
+        x_ = self.forward_features(x, inference_params, **kwargs)
+        if kwargs.get('return_pos', False):
+            x, pos = x_
+        else: x = x_
         # [batch, embed_dim]
         pdb.set_trace()
         if not kwargs.get('destroy_head', False):
             print('head used')
             x = self.head(self.head_drop(x), **kwargs) # destroy ?
-        return x
+        return (x, pos) if kwargs.get('return_pos', False) else x
 
 
 def inflate_weight(weight_2d, time_dim, center=True):
@@ -554,12 +568,13 @@ class CrocoDrcoder(nn.Module):
             DecoderBlock(dec_embed_dim, dec_num_heads, mlp_ratio=mlp_ratio, qkv_bias=True, norm_layer=norm_layer,
                          norm_mem=norm_im2_in_dec, rope=self.rope)
             for i in range(dec_depth)])
+        self.dec_blocks2 = deepcopy(self.dec_blocks)
         # final norm layer
         self.dec_norm = norm_layer(dec_embed_dim)
 
 class VideoMamba(nn.Module):
     def __init__(self,
-                 mamba_choice='middle',
+                 mamba_choice='base',
                  num_frames=20,
                  seed=4217,
                  dec_embed_dim=512,
@@ -651,9 +666,52 @@ class VideoMamba(nn.Module):
                 for key, value in ckpt_weights.items():
                     if key.startswith('dec_blocks'):
                         new_ckpt[key.replace('dec_blocks', 'dec_blocks2')] = value
-            self.CrocoDecoder.load_state_dict(new_ckpt, strict=False)
+            self.croco_decoder.load_state_dict(new_ckpt, strict=False)
         else:
             raise ValueError(f"Invalid checkpoint format: {weights_path}")
+
+    def _decoder(self, feature, position, extra_embed = None):
+        # TODO: 需要[b, f, patches, embed_dim]的feature
+        b, f, p, e = feature.shape
+        final_output = [feature]
+        if extra_embed is not None:
+            feature = torch.cat((feature, extra_embed), dim=-1)
+        f = rearrange(feature, 'b f p e -> (b f) p e')
+        f = self.croco_decoder.decoder_embed(f)
+        f = rearrange(f, "(b f) p e -> b f p e", b=b, f=f)
+
+        def generate_ctx_views(x):
+            b, f, p, e = x.shape
+            ctx_views = x.unsqueeze(1).expand(b, f, f, p, e)
+            mask = torch.arange(f).unsqueeze(0) != torch.arange(f).unsqueeze(1)
+            ctx_views = ctx_views[:, mask].reshape(b, f, f - 1, p, e)  # B, V, V-1, L, C
+            ctx_views = ctx_views.flatten(2, 3)  # B, V, (V-1)*L, C
+            return ctx_views.contiguous()
+
+        pos_ctx = generate_ctx_views(position)
+        for blk1, blk2 in zip(self.dec_blocks, self.dec_blocks2):
+            feat_current = final_output[-1]
+            feat_current_ctx = generate_ctx_views(feat_current)
+            # img1 side
+            f1, _ = blk1(feat_current[:, 0].contiguous(), feat_current_ctx[:, 0].contiguous(), position[:, 0].contiguous(),
+                         pos_ctx[:, 0].contiguous())
+            f1 = f1.unsqueeze(1)
+            # img2 side
+            f2, _ = blk2(rearrange(feat_current[:, 1:], "b f p e -> (b f) p e"),
+                         rearrange(feat_current_ctx[:, 1:], "b f p e -> (b f) p e"),
+                         rearrange(position[:, 1:], "b f l c -> (b v) l c"),
+                         rearrange(pos_ctx[:, 1:], "b f p e -> (b f) p e"))
+            f2 = rearrange(f2, "b f p e -> (b f) p e", b=b, f=f - 1)
+            # store the result
+            final_output.append(torch.cat((f1, f2), dim=1))
+
+        del final_output[1] # duplicate with final_output[0]
+        last_feature = rearrange(final_output[-1], 'b f p e -> (b f) p e')
+        last_feature = self.croco_decoder.dec_norm(last_feature)
+        final_output[-1] = rearrange(last_feature, '(b f) p e -> b f p e', b=b, f=f)
+
+        return final_output
+
 
 
     def forward(self,
@@ -670,19 +728,33 @@ class VideoMamba(nn.Module):
         intrinsic_embed = rearrange(intrinsic_embed.reshape((b_, f_, self.embed_dim)), 'b f e -> f b e')
         args_dict = {
             'intrinsic_embeddings': intrinsic_embed,
-            'destroy_head': True
+            'destroy_head': True,
+            'return_pos': True,
         }
-        mamba_hidden_state = self.mamba_encoder(context['video'], **args_dict)
-        # [batch, frames*num_patches, embed_dim]
-        # frames * num_patches = frames * (height / patch_size) * (width / patch_size)
-        mamba_hidden_state = rearrange(mamba_hidden_state, 'b (f p) e -> b f p e', f=num_frames)
-        # [batch, frames, num_patches, embed_dim]
+        mamba_feature, pos, embeddings = self.mamba_encoder(context['video'], **args_dict) # TODO: 返回每个patch的PE
+        """
+            mamba_hidden_state: [batch, frames * num_patches, embed_dim]
+                → frames * num_patches = frames * (h / patch_size) * (w / patch_size)
+            
+            pos: [batch, embed_dim, frames, h / patch_size, w / patch_size]
+        """
+        mamba_feature = rearrange(mamba_feature, 'b (f p) e -> b f p e', f=num_frames)
+        pos = rearrange(pos, 'b e f h w -> b f (h w) e')
+        """
+            mamba_hidden_state: [batch, frames, (h*w) / patch_size**2, embed_dim]
+            pos: [batch, frames, (h * w) / patch_size**2, embed_dim]
+        """
+        decoded_feature = self._decoder(mamba_feature, pos)
+        dec_list = list(torch.cat(decoded_feature, dim=0)) # TODO: 是否要取每个回归的末尾？
+        dec_list = [u[:, -1] for u in dec_list]
+        dec_feature_list = list(torch.cat(dec_list, dim=0).chunk(b))
 
-
-
-
-
-
+        views = {
+            'video': context['video'],
+            'position': pos,
+            'embeddings': embeddings
+        }
+        return (dec_feature_list, views) if return_views else dec_feature_list
         # TODO: dec1, dec2, shape1, shape2, view1, view2 = self.backbone(context, return_views=True)  # PE & Proj
 
 
@@ -752,6 +824,7 @@ if __name__ == '__main__':
     k_dict = {
         'intrinsic_embeddings': intrinsic_embed,
         'destroy_head': True,
+        'return_pos': True
     }
 
     s = time.time()
