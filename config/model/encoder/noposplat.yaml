@@ -28,7 +28,7 @@ visualizer:
 
 apply_bounds_shim: true
 
-gs_params_head_type: dpt-video # -> sole head (actually dynamic head)
+gs_params_head_type: dpt-video # -> sole head (static) -> 只编码我指定的车辆bbox，与VideoMamba输出的特征做CrossAttention
 # dpt-video-hierarchical -> static head + dynamic head
 pose_free: true
 pretrained_weights: ""
