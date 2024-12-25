@@ -33,3 +33,12 @@ ml_collections
 optax
 clu
 xformers==0.0.20
+apex
+av==11.0.0
+decord==0.6.0
+deepspeed==0.13.1
+ftfy==6.1.3
+fvcore==0.1.5.post20221221
+imageio==2.33.1
+lm_eval==0.4.1
+omegaconf==2.3.0
