@@ -28,6 +28,7 @@ visualizer:
 
 apply_bounds_shim: true
 
-gs_params_head_type: dpt-video # dpt-video-hierarchical
+gs_params_head_type: dpt-video # -> sole head (actually dynamic head)
+# dpt-video-hierarchical -> static head + dynamic head
 pose_free: true
 pretrained_weights: ""

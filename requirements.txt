@@ -24,7 +24,6 @@ svg.py
 scikit-video
 opencv-python
 seaborn>=0.11.2
-git+https://github.com/deepmind/dmvr.git
 absl-py
 flax
 immutabledict
