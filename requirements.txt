@@ -32,3 +32,4 @@ basicsr
 ml_collections
 optax
 clu
+xformers==0.0.20
