@@ -61,6 +61,8 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
         self.gs_params_head_type = cfg.gs_params_head_type
 
+        # TODO: 加高斯head了再放回来
+        """
         head_type = 'dpt-video' if cfg.gs_params_head_type == 'dpt-video' else 'dpt'
         output_type = 'pts3d-video' if cfg.gs_params_head_type == 'dpt-video' else \
                       'pts3d-video-hierarchical' if cfg.gs_params_head_type == 'dpt-video-hierarchical' else 'dpt'
@@ -69,6 +71,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         # -> self.downstream_head1, self.downstream_head2, self.head1, self.head2
         self.set_gs_params_head(cfg, head_type, output_type)
         # -> self.gaussian_param_head, self.gaussian_param_head2
+        """
     
     def set_center_head(self, output_mode, head_type, landscape_only, depth_mode, conf_mode):
         self.backbone.depth_mode = depth_mode
@@ -140,7 +143,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
     #     head = getattr(self, f'head_{head_name}')
     #     return head(decout, img_shape, ray_embedding=ray_embedding)
     
-    # SOLE_HEAD works at ↓
+    # only InstanceMaskedAttention_Head works at ↓
     def forward_one(
         self,
         context: dict,
@@ -156,6 +159,37 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
                     self.gaussian_param_head_sole
         """
 
+        video = context['video']
+        device = video.device
+        b, f, _, h, w = video.shape
+
+        # TODO: [AIR] 要有3个head，多一个diffusion的
+        dec_feature, views = self.backbone(context, return_views=True) # PE & Proj
+        """
+            views = {
+                'shape': shape # [batch, frame, channel(=3)]
+                'video': context['video'],  # [batch, frames, height, width]
+                'position': pos,            # [batch, frames, num_patcher, embed_dim]
+                'embeddings': embeddings    # [num_patches, frames, batch, embed_dim]
+            }
+        """
+        # TODO: 确认fec_feature的形状
+        video = views['video']
+        shape = views['shape']
+        pdb.set_trace()
+        with torch.cuda.amp.autocast(enabled=False):
+            ... # ldm
+
+
+
+
+    # Gaussian_Head + InstanceMaskedAttention_Head works at ↓
+    def forward_two(
+        self,
+        context: dict,
+        global_step: int = 0,
+        visualization_dump: Optional[dict] = None,
+    ) -> Gaussians:
         video = context['video']
         device = video.device
         b, f, _, h, w = video.shape
@@ -265,138 +299,6 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
             ),
         )
 
-    # MULTI_HEAD works at ↓
-    def forward_two(
-        self,
-        context: dict,
-        global_step: int = 0,
-        visualization_dump: Optional[dict] = None,
-    ) -> Gaussians:
-
-        """
-            Available:
-                center-head:
-                    self.downstream_head_static ~ self.head_static
-                    self.downstream_head_dynamic ~ self.head_dynamic
-                param-head:
-                    self.gaussian_param_head_static
-                    self.gaussian_param_head_dynamic
-        """
-        device = context["image"].device
-        b, v, _, h, w = context["image"].shape
-
-        # Encode the context images.
-        # TODO: [AIR] 要有3个head，多一个diffusion的
-        #
-        dec_feature_list, views = self.backbone(context, return_views=True) # PE & Proj
-        # src.model/encoder/backbone/backbone_croco.py - line: 222
-        # 完成了：嵌入、feature回归、解码 -> tokens
-        """
-            views = {
-                'video': context['video'],
-                'position': pos,
-                'embeddings': embeddings
-            }
-        """
-
-        pdb.set_trace()
-        video = views['video']
-        shpe = views['shape']
-        with torch.cuda.amp.autocast(enabled=False):
-            all_mean_res = []
-            all_other_params = []
-            res1 = self._downstream_head(1, [tok[:, 0].float() for tok in dec_feat], shape[:, 0])
-            all_mean_res.append(res1)
-            for i in range(1, v):
-                res2 = self._downstream_head(2, [tok[:, i].float() for tok in dec_feat], shape[:, i])
-                all_mean_res.append(res2)
-
-            # for the 3DGS heads
-            if self.gs_params_head_type == 'dpt_gs':
-                GS_res1 = self.gaussian_param_head([tok[:, 0].float() for tok in dec_feat],
-                                                   all_mean_res[0]['pts3d'].permute(0, 3, 1, 2), images[:, 0, :3],
-                                                   shape[0, 0].cpu().tolist())
-                GS_res1 = rearrange(GS_res1, "b d h w -> b (h w) d")
-                all_other_params.append(GS_res1)
-                for i in range(1, v):
-                    GS_res2 = self.gaussian_param_head2([tok[:, i].float() for tok in dec_feat],
-                                                        all_mean_res[i]['pts3d'].permute(0, 3, 1, 2), images[:, i, :3],
-                                                        shape[0, i].cpu().tolist())
-                    GS_res2 = rearrange(GS_res2, "b d h w -> b (h w) d")
-                    all_other_params.append(GS_res2)
-            else:
-                raise NotImplementedError(f"unexpected {self.gs_params_head_type=}")
-
-        pts_all = [all_mean_res_i['pts3d'] for all_mean_res_i in all_mean_res]
-        pts_all = torch.stack(pts_all, dim=1)
-        pts_all = rearrange(pts_all, "b v h w xyz -> b v (h w) xyz")
-        pts_all = pts_all.unsqueeze(-2)  # for cfg.num_surfaces
-
-        depths = pts_all[..., -1].unsqueeze(-1)
-
-        gaussians = torch.stack(all_other_params, dim=1)
-        gaussians = rearrange(gaussians, "... (srf c) -> ... srf c", srf=self.cfg.num_surfaces)
-        densities = gaussians[..., 0].sigmoid().unsqueeze(-1)
-
-        # Convert the features and depths into Gaussians.
-        if self.pose_free:
-            gaussians = self.gaussian_adapter.forward(
-                pts_all.unsqueeze(-2),
-                depths,
-                self.map_pdf_to_opacity(densities, global_step),
-                rearrange(gaussians[..., 1:], "b v r srf c -> b v r srf () c"),
-            )
-        else:
-            xy_ray, _ = sample_image_grid((h, w), device)
-            xy_ray = rearrange(xy_ray, "h w xy -> (h w) () xy")
-            xy_ray = xy_ray[None, None, ...].expand(b, v, -1, -1, -1)
-
-            gaussians = self.gaussian_adapter.forward(
-                rearrange(context["extrinsics"], "b v i j -> b v () () () i j"),
-                rearrange(context["intrinsics"], "b v i j -> b v () () () i j"),
-                rearrange(xy_ray, "b v r srf xy -> b v r srf () xy"),
-                depths,
-                self.map_pdf_to_opacity(densities, global_step),
-                rearrange(gaussians[..., 1:], "b v r srf c -> b v r srf () c"),
-                (h, w),
-            )
-
-        # Dump visualizations if needed.
-        if visualization_dump is not None:
-            visualization_dump["depth"] = rearrange(
-                depths, "b v (h w) srf s -> b v h w srf s", h=h, w=w
-            )
-            visualization_dump["scales"] = rearrange(
-                gaussians.scales, "b v r srf spp xyz -> b (v r srf spp) xyz"
-            )
-            visualization_dump["rotations"] = rearrange(
-                gaussians.rotations, "b v r srf spp xyzw -> b (v r srf spp) xyzw"
-            )
-            visualization_dump["means"] = rearrange(
-                gaussians.means, "b v (h w) srf spp xyz -> b v h w (srf spp) xyz", h=h, w=w
-            )
-            visualization_dump['opacities'] = rearrange(
-                gaussians.opacities, "b v (h w) srf s -> b v h w srf s", h=h, w=w
-            )
-
-        return Gaussians(
-            rearrange(
-                gaussians.means,
-                "b v r srf spp xyz -> b (v r srf spp) xyz",
-            ),
-            rearrange(
-                gaussians.covariances,
-                "b v r srf spp i j -> b (v r srf spp) i j",
-            ),
-            rearrange(
-                gaussians.harmonics,
-                "b v r srf spp c d_sh -> b (v r srf spp) c d_sh",
-            ),
-            rearrange(
-                gaussians.opacities,
-                "b v r srf spp -> b (v r srf spp)",
-            ),
-        )
 
 
     def forward(
