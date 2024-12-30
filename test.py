@@ -44,7 +44,7 @@ class myVivitModel(VivitModel):
         if new_embedding is not None:
             self.embeddings = new_embedding(config)
 
-def main():
+def main1():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = myVivitModel.from_pretrained("../google/vivit-b-16x2-kinetics400", attn_implementation="sdpa", torch_dtype=torch.float32)
     model = model.to(device)
@@ -77,5 +77,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from src.model.encoder.backbone.backbone_videomamba import main
     main()
 

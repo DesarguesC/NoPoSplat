@@ -1,6 +1,6 @@
 # Copyright (c) 2015-present, Facebook, Inc.
 # All rights reserved.
-import os
+import os, pdb
 import torch
 import torch.nn as nn
 from functools import partial
@@ -10,7 +10,7 @@ import torch.utils.checkpoint as checkpoint
 
 from copy import deepcopy
 
-from .croco.pos_embed import get_2d_sincos_pos_embed, RoPE2D
+from .croco.pos_embed import get_2d_sincos_pos_embed , RoPE2D
 from .croco.masking import RandomMask
 from .croco.blocks import Block, DecoderBlock, PatchEmbed
 
@@ -22,7 +22,7 @@ from timm.models.layers import trunc_normal_
 from timm.models.layers import DropPath, to_2tuple
 from timm.models.vision_transformer import _load_weights
 
-import math, pdb
+import math
 from src.misc.weight_modify import checkpoint_filter_fn
 from mamba_ssm.modules.mamba_simple import Mamba
 
@@ -31,7 +31,7 @@ try:
 except ImportError:
     RMSNorm, layer_norm_fn, rms_norm_fn = None, None, None
 
-import time, pdb
+import time
 from fvcore.nn import FlopCountAnalysis
 from fvcore.nn import flop_count_table
 from random import randint
@@ -323,8 +323,9 @@ class VisionMamba(nn.Module):
         _load_weights(self, checkpoint_path, prefix)
 
     def forward_features(self, x, inference_params=None, **kwargs):
+        pdb.set_trace()
         # 我做的是，将intrinsic做位置嵌入后与x在patch维度拼接，也算一个和过去工作的区别；过去工作：intrinsic直接和image在channel(=3)维度拼接，再一起位置编码
-        B, F, C, H, W = x.shape
+        B, C, F, H, W = x.shape
         shape_all = torch.tensor(H)[None].repeat(B * C, 1)  # TODO: 考虑用patch开？(→迁移到if中)
         # batch * frames
         pos = self.patch_embed(x) # [b, embed_dim, frames, h/patch_size, w/patch_size]
@@ -336,22 +337,22 @@ class VisionMamba(nn.Module):
         # TODO: 用CAT[cls_token, intrinsic_embed] ?
         cls_token = self.cls_token.expand(x.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         x = torch.cat((cls_token, x), dim=1)
-        pdb.set_trace()
         x = x + self.pos_embed # [b*frames, num_patches+1, embed_dim]
         _, p, e = x.shape
         if 'intrinsic_embeddings' in kwargs:
             # x = x + kwargs['intrinsic_embeddings'] # TODO: 可以加类似deformable gs里随迭代次数波动的正态噪声
             embeddings = rearrange(repeat(kwargs['intrinsic_embeddings'][None,:], '1 ... -> c ...', c=p), 'p f b e -> (b f) p e')
             # [frames, batch, embed_dim] -> [num_patches+1, frames, batch, embed_dim] -> [batch*frames, num_patches, embed_dim]
-            x = torch.cat([x, embeddings], dim=0)
-            embeddings = deepcopy(x[:, 1:]) # [num_patches, frames, batch, embed_dim]
+            x = torch.cat([x, embeddings], dim=0) # 扩大了一倍，视为patch的扩充
+            pdb.set_trace()
+            embeddings = deepcopy(x[:, 1:].detach()) # [num_patches, frames, batch, embed_dim]
 
 
         # temporal pos
         cls_tokens = x[:B, :1, :]
         x = x[:, 1:] # num_patches+1 -> num_patches
-        x = rearrange(x, '(b t) n m -> (b n) t m', b=B, t=T) # [batch * num_patches, frames, embed_dim]
-        x = x + self.temporal_pos_embedding # num_patches, frames, embed_dim
+        x = rearrange(x, '(b t) n m -> (b n) t m', b=B*2, t=T) # [batch * num_patches, frames, embed_dim]
+        x = x + self.temporal_pos_embedding # [num_patches, frames, embed_dim] <- broadcast mechanism
         x = rearrange(x, '(b n) t m -> b (t n) m', b=B, t=T) # [batch, frames*num_patches, embed_dim]
         x = torch.cat((cls_tokens, x), dim=1) # [batch, frames*num_patches+1, embed_dim]
 
@@ -371,7 +372,7 @@ class VisionMamba(nn.Module):
                 hidden_states, residual = layer(
                     hidden_states, residual, inference_params=inference_params
                 )
-        pdb.set_trace() # hidden_states: [batch, frames*num_patches+1, embed_dim]
+        # pdb.set_trace() # hidden_states: [batch, frames*num_patches+1, embed_dim]
         if not self.fused_add_norm:
             if residual is None:
                 residual = hidden_states
@@ -394,8 +395,8 @@ class VisionMamba(nn.Module):
         pdb.set_trace()
         # return only cls token
         ret_state = hidden_states[:, 1:] if kwargs.get('destroy_head', False) else hidden_states[:, 0, :]
-
         shape = rearrange(shape_all, '(b f) c -> b f c', b=B, f=F)
+        
         return (ret_state, pos, embeddings, shape) \
             if kwargs.get('return_pos', False) and kwargs.get('intrinsic_embeddings', None) is not None \
             else ret_state
@@ -742,7 +743,7 @@ class VideoMamba(nn.Module):
             
             pos: [batch, embed_dim, frames, h / patch_size, w / patch_size]
         """
-        mamba_feature = rearrange(mamba_feature, 'b (f p) e -> b f p e', f=num_frames)
+        mamba_feature = rearrange(mamba_feature, 'b (f p) e -> b f p e', f=f)
         pos = rearrange(pos, 'b e f h w -> b f (h w) e')
         """
             mamba_hidden_state: [batch, frames, (h*w) / patch_size**2, embed_dim]
@@ -784,32 +785,34 @@ class VideoMamba(nn.Module):
 
 
 
-
-if __name__ == '__main__':
-
-
+def main():
+    # run from top direction: python src/model/encoder/backbone/backbone_videomamba.py
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
     seed = 4217
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     num_frames = 20
-    img_size = 224 # 必须长宽相等
-    folder_path = "../../../../datasets/point_odyssey/val/ani10_new_f/rgbs"
+    img_size = 224  # 必须长宽相等
+    folder_path = "./datasets/point_odyssey/val/ani10_new_f/rgbs"
 
     # To evaluate GFLOPs, pleaset set `rms_norm=False` and `fused_add_norm=False`
     model = videomamba_middle(num_frames=num_frames).cuda()
     img_names = [os.path.join(folder_path, x) for x in os.listdir(folder_path)]
     img_list = [cv2.resize(cv2.imread(img), (img_size, img_size)) for img in img_names]
-    batch_size = 1
+    batch_size = 2
+    u = [randint(0, 100) for _ in range(batch_size)]
 
     pdb.set_trace()
-    monocular_tensor = [torch.cat([img2tensor(img_list[i])[None, :, :, :] for i in range(u, u + num_frames)]) for u in
-                        range(len(img_list) - num_frames + 1)]
-    u = randint(0, 100)
-    video_tensor = torch.cat([monocular_tensor[i][None, :, :, :, :] for i in range(u, u + batch_size)], dim=0).to(device)
+    monocular_tensor = [
+        torch.cat([img2tensor(img_list[i])[None, :, :, :] for i in range(u_i, u_i + num_frames)]) for u_i in u if u_i + num_frames < len(img_list)
+    ]
+    batch_size = len(monocular_tensor)
+    video_tensor = torch.cat([tensor[None, :, :, :, :] for tensor in monocular_tensor], dim=0).to(device)
+
+    pdb.set_trace()
+
     # batch, frame, 3, H, W
     input = video_tensor.permute(0, 2, 1, 3, 4)
 
@@ -818,8 +821,8 @@ if __name__ == '__main__':
 
     intrinsics = torch.randn((batch_size, num_frames, 3, 3)).to(device)
     encoder_fn = nn.Sequential(
-            nn.Linear(9 * num_frames, 2048),
-            nn.Linear(2048, num_frames * 576)
+        nn.Linear(9 * num_frames, 2048),
+        nn.Linear(2048, num_frames * 576)
     ).to(device)
 
     intrinsic_embed = encoder_fn(rearrange(intrinsics, 'b f h w -> b (f h w)'))
@@ -836,6 +839,10 @@ if __name__ == '__main__':
     pdb.set_trace()
     output = model(input, **k_dict)
     # [batch, embed_dim]
-
+    pdb.set_trace()
+    print(f'output.shape = {output.shape}')
     # print(flop_count_table(flops, max_depth=1))
     print(f'Time Cost: {time.time() - s}')
+
+if __name__ == '__main__':
+    main()
