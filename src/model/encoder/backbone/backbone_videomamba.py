@@ -833,6 +833,7 @@ if __name__ == '__main__':
     }
 
     s = time.time()
+    pdb.set_trace()
     output = model(input, **k_dict)
     # [batch, embed_dim]
 

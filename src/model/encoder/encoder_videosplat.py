@@ -183,7 +183,9 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
 
 
-    # Gaussian_Head + InstanceMaskedAttention_Head works at ↓
+    # 我倾向于这个会work
+    # Gaussian_Head + VehiclePose_Head + InstanceMaskedAttention_Head works at ↓
+    # InstanceMaskedAttention_Head work了以后再看能否用continuous attention优化
     def forward_two(
         self,
         context: dict,
