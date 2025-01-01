@@ -326,7 +326,7 @@ class VisionMamba(nn.Module):
         pdb.set_trace()
         # 我做的是，将intrinsic做位置嵌入后与x在patch维度拼接，也算一个和过去工作的区别；过去工作：intrinsic直接和image在channel(=3)维度拼接，再一起位置编码
         B, C, F, H, W = x.shape
-        shape_all = torch.tensor(H)[None].repeat(B * C, 1)  # TODO: 考虑用patch开？(→迁移到if中)
+        shape_all = torch.tensor(H)[None].repeat(B * F, 1)  # TODO: 考虑用patch开？(→迁移到if中)
         # batch * frames
         pos = self.patch_embed(x) # [b, embed_dim, frames, h/patch_size, w/patch_size]
         # TODO: intrinsics嵌入在后面与之拼接，还是，嵌入于x拼接一起做投影
@@ -344,7 +344,7 @@ class VisionMamba(nn.Module):
             embeddings = rearrange(repeat(kwargs['intrinsic_embeddings'][None,:], '1 ... -> c ...', c=p), 'p f b e -> (b f) p e')
             # [frames, batch, embed_dim] -> [num_patches+1, frames, batch, embed_dim] -> [batch*frames, num_patches, embed_dim]
             x = torch.cat([x, embeddings], dim=0) # 扩大了一倍，视为patch的扩充
-            pdb.set_trace()
+            # pdb.set_trace()
             embeddings = deepcopy(x[:, 1:].detach()) # [num_patches, frames, batch, embed_dim]
 
 
@@ -391,27 +391,27 @@ class VisionMamba(nn.Module):
                 prenorm=False,
                 residual_in_fp32=self.residual_in_fp32,
             )
-        # hidden_states: [batch, frames*num_patches+1, embed_dim]
+        # hidden_states: [batch, b*frames*num_patches+1, embed_dim]
         pdb.set_trace()
         # return only cls token
         ret_state = hidden_states[:, 1:] if kwargs.get('destroy_head', False) else hidden_states[:, 0, :]
         shape = rearrange(shape_all, '(b f) c -> b f c', b=B, f=F)
         
         return (ret_state, pos, embeddings, shape) \
-            if kwargs.get('return_pos', False) and kwargs.get('intrinsic_embeddings', None) is not None \
+            if (kwargs.get('return_pos', False) and kwargs.get('intrinsic_embeddings', None) is not None) \
             else ret_state
 
     def forward(self, x, inference_params=None, **kwargs):
-        x_ = self.forward_features(x, inference_params, **kwargs)
-        if kwargs.get('return_pos', False):
-            x, pos = x_
-        else: x = x_
-        # [batch, embed_dim]
         pdb.set_trace()
-        if not kwargs.get('destroy_head', False):
+        forward_features = self.forward_features(x, inference_params, **kwargs)
+
+        if kwargs.get('return_pos', False) and kwargs.get('intrinsic_embeddings', None) is not None:
+            return forward_features
+        else:
+            assert not kwargs.get('destroy_head', False)
             print('head used')
             x = self.head(self.head_drop(x), **kwargs) # destroy ?
-        return (x, pos) if kwargs.get('return_pos', False) else x
+            return x
 
 
 def inflate_weight(weight_2d, time_dim, center=True):
@@ -678,6 +678,7 @@ class VideoMamba(nn.Module):
             raise ValueError(f"Invalid checkpoint format: {weights_path}")
 
     def _decoder(self, feature, position, extra_embed = None):
+        pdb.set_trace()
         # TODO: 需要[b, f, patches, embed_dim]的feature
         b, f, p, e = feature.shape
         final_output = [feature]
@@ -686,34 +687,39 @@ class VideoMamba(nn.Module):
         f = rearrange(feature, 'b f p e -> (b f) p e')
         f = self.croco_decoder.decoder_embed(f)
         f = rearrange(f, "(b f) p e -> b f p e", b=b, f=f)
+        final_output.append(f)
 
         def generate_ctx_views(x):
             b, f, p, e = x.shape
             ctx_views = x.unsqueeze(1).expand(b, f, f, p, e)
             mask = torch.arange(f).unsqueeze(0) != torch.arange(f).unsqueeze(1)
-            ctx_views = ctx_views[:, mask].reshape(b, f, f - 1, p, e)  # B, V, V-1, L, C
-            ctx_views = ctx_views.flatten(2, 3)  # B, V, (V-1)*L, C
+            ctx_views = ctx_views[:, mask].reshape(b, f, f - 1, p, e)  # B, F, F-1, P, C
+            ctx_views = ctx_views.flatten(2, 3)  # B, F, (F-1)*P, C
             return ctx_views.contiguous()
 
+        pdb.set_trace()
         pos_ctx = generate_ctx_views(position)
         for blk1, blk2 in zip(self.dec_blocks, self.dec_blocks2):
             feat_current = final_output[-1]
             feat_current_ctx = generate_ctx_views(feat_current)
             # img1 side
-            f1, _ = blk1(feat_current[:, 0].contiguous(), feat_current_ctx[:, 0].contiguous(), position[:, 0].contiguous(),
-                         pos_ctx[:, 0].contiguous())
+            f1, _ = blk1(feat_current[:, 0].contiguous(), feat_current_ctx[:, 0].contiguous(), position[:, 0].contiguous(), pos_ctx[:, 0].contiguous())
             f1 = f1.unsqueeze(1)
             # img2 side
             f2, _ = blk2(rearrange(feat_current[:, 1:], "b f p e -> (b f) p e"),
                          rearrange(feat_current_ctx[:, 1:], "b f p e -> (b f) p e"),
                          rearrange(position[:, 1:], "b f l c -> (b v) l c"),
                          rearrange(pos_ctx[:, 1:], "b f p e -> (b f) p e"))
-            f2 = rearrange(f2, "b f p e -> (b f) p e", b=b, f=f - 1)
+            f2 = rearrange(f2, "b f p e -> (b f) p e", b=b, f=f-1)
             # store the result
-            final_output.append(torch.cat((f1, f2), dim=1))
+            final_output.append(torch.cat((f1, f2), dim=1)) # concatenate with patches
 
+        pdb.set_trace()
         del final_output[1] # duplicate with final_output[0]
-        last_feature = rearrange(final_output[-1], 'b f p e -> (b f) p e')
+        # final_output[-1] = tuple(map(self.croco_decoder.dec_norm, final_output[-1]))
+        # TODO: ↑
+
+        last_feature = rearrange(final_output[-1], 'b f p e -> (b f) p e') # TODO: final_outptu[-1] - [(b f) p e] ?
         last_feature = self.croco_decoder.dec_norm(last_feature)
         final_output[-1] = rearrange(last_feature, '(b f) p e -> b f p e', b=b, f=f)
 
@@ -749,6 +755,7 @@ class VideoMamba(nn.Module):
             mamba_hidden_state: [batch, frames, (h*w) / patch_size**2, embed_dim]
             pos: [batch, frames, (h * w) / patch_size**2, embed_dim]
         """
+        pdb.set_trace()
         decoded_feature = self._decoder(mamba_feature, pos)
         dec_list = list(torch.cat(decoded_feature, dim=0)) # TODO: 是否要取每个回归的末尾？
         dec_list = [u[:, -1] for u in dec_list]
@@ -760,6 +767,7 @@ class VideoMamba(nn.Module):
             'position': pos,
             'embeddings': embeddings # [num_patches, frames, batch, embed_dim]
         }
+        pdb.set_trace()
         return (dec_feature_list, views) if return_views else dec_feature_list
         # TODO: dec1, dec2, shape1, shape2, view1, view2 = self.backbone(context, return_views=True)  # PE & Proj
 
@@ -801,7 +809,7 @@ def main():
     model = videomamba_middle(num_frames=num_frames).cuda()
     img_names = [os.path.join(folder_path, x) for x in os.listdir(folder_path)]
     img_list = [cv2.resize(cv2.imread(img), (img_size, img_size)) for img in img_names]
-    batch_size = 2
+    batch_size = 8
     u = [randint(0, 100) for _ in range(batch_size)]
 
     pdb.set_trace()
@@ -843,6 +851,9 @@ def main():
     print(f'output.shape = {output.shape}')
     # print(flop_count_table(flops, max_depth=1))
     print(f'Time Cost: {time.time() - s}')
+    # output: ret_state, pos, embeddings, shape
+    # [b, 2*f*p, e], [b, e, f, p1, p2], [b*f*2, p_size, e], [b, f, 1]
+    # embedding concatenate带来*2 | 后续处理：为了适配模型，可以把2归结为
 
 if __name__ == '__main__':
     main()
