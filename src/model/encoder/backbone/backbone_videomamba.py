@@ -323,7 +323,6 @@ class VisionMamba(nn.Module):
         _load_weights(self, checkpoint_path, prefix)
 
     def forward_features(self, x, inference_params=None, **kwargs):
-        pdb.set_trace()
         # 我做的是，将intrinsic做位置嵌入后与x在patch维度拼接，也算一个和过去工作的区别；过去工作：intrinsic直接和image在channel(=3)维度拼接，再一起位置编码
         B, C, F, H, W = x.shape
         shape_all = torch.tensor(H)[None].repeat(B * F, 1)  # TODO: 考虑用patch开？(→迁移到if中)
@@ -361,7 +360,6 @@ class VisionMamba(nn.Module):
         # mamba impl
         residual = None
         hidden_states = x
-        pdb.set_trace()
         for idx, layer in enumerate(self.layers):
             if self.use_checkpoint and idx < self.checkpoint_num:
                 hidden_states, residual = layer(
@@ -392,7 +390,6 @@ class VisionMamba(nn.Module):
                 residual_in_fp32=self.residual_in_fp32,
             )
         # hidden_states: [batch, b*frames*num_patches+1, embed_dim]
-        pdb.set_trace()
         # return only cls token
         ret_state = hidden_states[:, 1:] if kwargs.get('destroy_head', False) else hidden_states[:, 0, :]
         shape = rearrange(shape_all, '(b f) c -> b f c', b=B, f=F)
@@ -564,8 +561,11 @@ class CrocoDrcoder(nn.Module):
                  dec_depth,
                  mlp_ratio,
                  norm_layer,
-                 norm_im2_in_dec
+                 norm_im2_in_dec,
+                 rope = None
                  ):
+        super().__init__()
+        self.rope = rope
         self.dec_depth = dec_depth
         self.dec_embed_dim = dec_embed_dim
         # transfer from encoder to decoder
@@ -584,7 +584,7 @@ class VideoMamba(nn.Module):
                  mamba_choice='base',
                  num_frames=20,
                  seed=4217,
-                 dec_embed_dim=512,
+                 dec_embed_dim=768,
                  dec_depth=12,
                  dec_num_heads=16,
                  mlp_ratio=4,
@@ -600,23 +600,27 @@ class VideoMamba(nn.Module):
         self.seed = seed
         self.device = device
         self.num_frames = num_frames
+
         self.mamba_encoder = VideoMambaModel(mamba_choice, num_frames, seed, device)
         # frame, batch, 3, 3
-        self.enc_embed_dim = mamba_params[mamba_choice]['embed_dim']
+        self.enc_embed_dim = mamba_params[mamba_choice]['embed_dim'] # mamba中的embed_dim
         self.enc_patch_size = mamba_params[mamba_choice]['patch_size']
         self.intrinsic_encoder = nn.Sequential(
             nn.Linear(9 * num_frames, 2048),
             nn.Linear(2048, num_frames * self.enc_embed_dim)
         )
+        # self.encoder_to_decoder = nn.Sequential(
+        #     nn.Linear(self.enc_embed_dim, dec_embed_dim),
+        # )
+
         # TODO: maps to [b, embed_dim, frames, h / patch_size, w / patch_size]
         # 「See Line - 319'forward_features'」
         # forward: in_embed = self.intrinsic_encoder(context["intrinsics"].flatten(2))
-        self.croco_decoder = None
-
+        self._set_num_patches()
         self.pos_embed = pos_embed
         if pos_embed == 'cosine':
             # positional embedding of the decoder
-            dec_pos_embed = get_2d_sincos_pos_embed(dec_embed_dim, int(self.patch_embed.num_patches ** .5),
+            dec_pos_embed = get_2d_sincos_pos_embed(dec_embed_dim, int(self.num_patches ** .5),
                                                     n_cls_token=0)
             self.register_buffer('dec_pos_embed', torch.from_numpy(dec_pos_embed).float())
             # pos embedding in each block
@@ -633,13 +637,15 @@ class VideoMamba(nn.Module):
         # masked tokens
         self._set_mask_token(dec_embed_dim)
         # decoder
-        self.croco_decoder = CrocoDrcoder(self.enc_embed_dim, dec_embed_dim, dec_num_heads, dec_depth, mlp_ratio, norm_layer, norm_im2_in_dec)
+        self.croco_decoder = CrocoDrcoder(self.enc_embed_dim, dec_embed_dim, dec_num_heads, dec_depth, mlp_ratio, norm_layer, norm_im2_in_dec, rope=self.rope)
         # initializer weights
-        self.initialize_weights()
+        # self.initialize_weights()
+        if self.mask_token is not None: torch.nn.init.normal_(self.mask_token, std=.02)
         if decoder_weights_path is not None:
             self.load_decoder(decoder_weights_path) # initialize
 
-
+    def _set_num_patches(self, image_size=224, patch_size=16):
+        self.num_patches = (image_size/patch_size)**2
     def _set_mask_generator(self, num_patches, mask_ratio):
         self.mask_generator = RandomMask(num_patches, mask_ratio)
     def _set_mask_token(self, dec_embed_dim):
@@ -648,7 +654,7 @@ class VideoMamba(nn.Module):
 
     def initialize_weights(self):
         # patch embed
-        self.patch_embed._init_weights()
+        # self.patch_embed._init_weights() # inside VideoMamba
         # mask tokens
         if self.mask_token is not None: torch.nn.init.normal_(self.mask_token, std=.02)
         # linears and layer norms
@@ -656,7 +662,6 @@ class VideoMamba(nn.Module):
 
     def load_decoder(self, weights_path, **kwargs):
         assert os.path.exists(weights_path), f'file not exists: {weights_path}'
-        ckpt_weights = torch.load(weights_path)
         # TODO: load decoder models | 参考backbone_croco中的load_state_dict，加载_set_decoder中的模块（好像还有些）
         # 要'dec_blocks' | 剩下看 'dec_blocks' not in key and 'enc_bloacks' not in key
         ckpt_weights = torch.load(weights_path)
@@ -665,9 +670,10 @@ class VideoMamba(nn.Module):
             ckpt_weights = checkpoint_filter_fn(ckpt_weights, self.croco_decoder)  # 填充权重
             missing_keys, unexpected_keys = self.croco_decoder.load_state_dict(ckpt_weights, strict=False)
         elif 'state_dict' in ckpt_weights:
-            pdb.set_trace()
             ckpt_weights = ckpt_weights['state_dict'] # backbone_mamba.py - Line 647
-            ckpt_weights = {f'CrocoDecoder.{k[17:]}': v for k, v in ckpt_weights.items() if k.startswith('encoder.backbone.')}
+            # CrocoDecoder.{k[17:]}
+            ckpt_weights = { k[17:]: v for k, v in ckpt_weights.items() if (k.startswith('encoder.backbone.') and 'decoder_embed' not in k)}
+            # decoder_embed映射重新训练
             new_ckpt = dict(ckpt_weights)
             if not any(k.startswith('dec_blocks2') for k in ckpt_weights):
                 for key, value in ckpt_weights.items():
@@ -678,13 +684,25 @@ class VideoMamba(nn.Module):
             raise ValueError(f"Invalid checkpoint format: {weights_path}")
 
     def _decoder(self, feature, position, extra_embed = None):
+        # feature: [b, 2 * f * p, e]
+        # position: [b, e, f, p1, p2]
+        pdb.set_trace()
+        # TODO: embedding transfer
+        b, _, e = feature.shape
+        feature = rearrange(feature, 'b p e -> (b p) e')
+        feature = rearrange(self.croco_decoder.decoder_embed(feature), '(b p) e -> b p e', b = b)
+
+        b, e, f, p, q = position.shape
+        position = rearrange(position, 'b e f p q -> (b f p q) e')
+        position = rearrange(self.croco_decoder.decoder_embed(position), '(b f p q) e -> b e f p q', b=b, f=f, p=p)
+
         pdb.set_trace()
         # TODO: 需要[b, f, patches, embed_dim]的feature
         b, f, p, e = feature.shape
         final_output = [feature]
         if extra_embed is not None:
             feature = torch.cat((feature, extra_embed), dim=-1)
-        f = rearrange(feature, 'b f p e -> (b f) p e')
+        # f = rearrange(feature, 'b f p e -> (b f) p e')
         f = self.croco_decoder.decoder_embed(f)
         f = rearrange(f, "(b f) p e -> b f p e", b=b, f=f)
         final_output.append(f)
@@ -743,6 +761,7 @@ class VideoMamba(nn.Module):
             'return_pos': True,
         }
         mamba_feature, pos, embeddings, shape = self.mamba_encoder(context['video'], **args_dict) # TODO: 返回每个patch的PE
+        # [b, 2*f*p, e], [b, e, f, p1, p2], [b*f*2, p_size, e], [b, f, 1]
         """
             mamba_hidden_state: [batch, frames * num_patches, embed_dim]
                 → frames * num_patches = frames * (h / patch_size) * (w / patch_size)
@@ -767,7 +786,6 @@ class VideoMamba(nn.Module):
             'position': pos,
             'embeddings': embeddings # [num_patches, frames, batch, embed_dim]
         }
-        pdb.set_trace()
         return (dec_feature_list, views) if return_views else dec_feature_list
         # TODO: dec1, dec2, shape1, shape2, view1, view2 = self.backbone(context, return_views=True)  # PE & Proj
 
@@ -809,7 +827,7 @@ def main():
     model = videomamba_middle(num_frames=num_frames).cuda()
     img_names = [os.path.join(folder_path, x) for x in os.listdir(folder_path)]
     img_list = [cv2.resize(cv2.imread(img), (img_size, img_size)) for img in img_names]
-    batch_size = 8
+    batch_size = 4 # OK
     u = [randint(0, 100) for _ in range(batch_size)]
 
     pdb.set_trace()
@@ -818,14 +836,8 @@ def main():
     ]
     batch_size = len(monocular_tensor)
     video_tensor = torch.cat([tensor[None, :, :, :, :] for tensor in monocular_tensor], dim=0).to(device)
-
-    pdb.set_trace()
-
     # batch, frame, 3, H, W
     input = video_tensor.permute(0, 2, 1, 3, 4)
-
-    # pdb.set_trace()
-    # flops = FlopCountAnalysis(model, input)
 
     intrinsics = torch.randn((batch_size, num_frames, 3, 3)).to(device)
     encoder_fn = nn.Sequential(
@@ -844,15 +856,14 @@ def main():
     }
 
     s = time.time()
-    pdb.set_trace()
     output = model(input, **k_dict)
     # [batch, embed_dim]
     pdb.set_trace()
-    print(f'output.shape = {output.shape}')
+    print(f'output.shape = {output.shape}') # -> (ret_state, pos, embeddings, shape_tensor)
     # print(flop_count_table(flops, max_depth=1))
     print(f'Time Cost: {time.time() - s}')
     # output: ret_state, pos, embeddings, shape
-    # [b, 2*f*p, e], [b, e, f, p1, p2], [b*f*2, p_size, e], [b, f, 1]
+    # [b, 2*f*p, e], [b, e, f, p1, p2], [b*f*2, p_size, e], [b, f, 1]  「yes √」
     # embedding concatenate带来*2 | 后续处理：为了适配模型，可以把2归结为
 
 if __name__ == '__main__':

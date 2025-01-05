@@ -33,8 +33,8 @@ croco_params = {
 default_dust3r_params = {
     'enc_depth': 24,
     'dec_depth': 12,
-    'enc_embed_dim': 1024,
-    'dec_embed_dim': 768,
+    'enc_embed_dim': 1024, # original Dust3R embed dim: 1024 -> Mamba embed dim: middle-576
+    'dec_embed_dim': 768, # croco-decoder要求此处的embed_dim为768
     'enc_num_heads': 16,
     'dec_num_heads': 12,
     'pos_embed': 'RoPE100',

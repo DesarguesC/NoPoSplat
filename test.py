@@ -77,6 +77,12 @@ def main1():
 
 
 if __name__ == "__main__":
-    from src.model.encoder.backbone.backbone_videomamba import main
+    from src.model.encoder.backbone.backbone_videomamba import main, VideoMamba
+    # video_mamba = VideoMamba(
+    #     mamba_choice = 'middle',
+    #     num_frames = 20,
+    #     decoder_weights_path = './pretrained_weights/mixRe10kDl3dv.ckpt'
+    # )
+    pdb.set_trace()
     main()
 
