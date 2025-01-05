@@ -83,6 +83,6 @@ if __name__ == "__main__":
     #     num_frames = 20,
     #     decoder_weights_path = './pretrained_weights/mixRe10kDl3dv.ckpt'
     # )
-    pdb.set_trace()
+    # pdb.set_trace()
     main()
 

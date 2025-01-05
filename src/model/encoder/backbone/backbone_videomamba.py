@@ -637,7 +637,11 @@ class VideoMamba(nn.Module):
         # masked tokens
         self._set_mask_token(dec_embed_dim)
         # decoder
-        self.croco_decoder = CrocoDrcoder(self.enc_embed_dim, dec_embed_dim, dec_num_heads, dec_depth, mlp_ratio, norm_layer, norm_im2_in_dec, rope=self.rope)
+        self.croco_decoder = CrocoDrcoder(
+            self.enc_embed_dim, dec_embed_dim,
+            dec_num_heads, dec_depth, mlp_ratio,
+            norm_layer, norm_im2_in_dec,
+            rope=self.rope).to(device)
         # initializer weights
         # self.initialize_weights()
         if self.mask_token is not None: torch.nn.init.normal_(self.mask_token, std=.02)
@@ -686,11 +690,15 @@ class VideoMamba(nn.Module):
     def _decoder(self, feature, position, extra_embed = None):
         # feature: [b, 2 * f * p, e]
         # position: [b, e, f, p1, p2]
+        final_output = [feature]
+        if extra_embed is not None:
+            feature = torch.cat((feature, extra_embed), dim=-1)
         pdb.set_trace()
         # TODO: embedding transfer
         b, _, e = feature.shape
         feature = rearrange(feature, 'b p e -> (b p) e')
         feature = rearrange(self.croco_decoder.decoder_embed(feature), '(b p) e -> b p e', b = b)
+
 
         b, e, f, p, q = position.shape
         position = rearrange(position, 'b e f p q -> (b f p q) e')
@@ -698,14 +706,8 @@ class VideoMamba(nn.Module):
 
         pdb.set_trace()
         # TODO: 需要[b, f, patches, embed_dim]的feature
-        b, f, p, e = feature.shape
-        final_output = [feature]
-        if extra_embed is not None:
-            feature = torch.cat((feature, extra_embed), dim=-1)
-        # f = rearrange(feature, 'b f p e -> (b f) p e')
-        f = self.croco_decoder.decoder_embed(f)
-        f = rearrange(f, "(b f) p e -> b f p e", b=b, f=f)
-        final_output.append(f)
+        feature = rearrange(feature, "b (f p) e -> b f p e", b=b, f=f)
+        final_output.append(feature)
 
         def generate_ctx_views(x):
             b, f, p, e = x.shape
@@ -733,7 +735,7 @@ class VideoMamba(nn.Module):
             final_output.append(torch.cat((f1, f2), dim=1)) # concatenate with patches
 
         pdb.set_trace()
-        del final_output[1] # duplicate with final_output[0]
+        del final_output[0] # duplicate with final_output[1]
         # final_output[-1] = tuple(map(self.croco_decoder.dec_norm, final_output[-1]))
         # TODO: ↑
 
@@ -819,7 +821,7 @@ def main():
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    num_frames = 20
+    num_frames = 10
     img_size = 224  # 必须长宽相等
     folder_path = "./datasets/point_odyssey/val/ani10_new_f/rgbs"
 
@@ -827,7 +829,7 @@ def main():
     model = videomamba_middle(num_frames=num_frames).cuda()
     img_names = [os.path.join(folder_path, x) for x in os.listdir(folder_path)]
     img_list = [cv2.resize(cv2.imread(img), (img_size, img_size)) for img in img_names]
-    batch_size = 4 # OK
+    batch_size = 2 # OK
     u = [randint(0, 100) for _ in range(batch_size)]
 
     pdb.set_trace()
