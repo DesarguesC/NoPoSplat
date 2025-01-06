@@ -152,10 +152,14 @@ class EncoderNoPoSplatMulti(Encoder[EncoderNoPoSplatCfg]):
 
         # Encode the context images.
         dec_feat, shape, images = self.backbone(context)
+        # TODO: ↓ nopo video_mamba
+        # dec_feat: [b, f, p-1, e] * 13
+        # p == (h/p_size) * (w/p_size) * 2 | 因为拼了一个intrinsic_embed
         with torch.cuda.amp.autocast(enabled=False):
             all_mean_res = []
             all_other_params = []
             res1 = self._downstream_head(1, [tok[:, 0].float() for tok in dec_feat], shape[:, 0])
+            # shape[i:]
             all_mean_res.append(res1)
             for i in range(1, v):
                 res2 = self._downstream_head(2, [tok[:, i].float() for tok in dec_feat], shape[:, i])

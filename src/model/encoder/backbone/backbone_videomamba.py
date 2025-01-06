@@ -325,7 +325,7 @@ class VisionMamba(nn.Module):
     def forward_features(self, x, inference_params=None, **kwargs):
         # 我做的是，将intrinsic做位置嵌入后与x在patch维度拼接，也算一个和过去工作的区别；过去工作：intrinsic直接和image在channel(=3)维度拼接，再一起位置编码
         B, C, F, H, W = x.shape
-        shape_all = torch.tensor(H)[None].repeat(B * F, 1)  # TODO: 考虑用patch开？(→迁移到if中)
+        shape_all = torch.tensor((H,W))[None].repeat(B * F, 1)  # TODO: 考虑用patch开？(→迁移到if中)
         # batch * frames
         pos = self.patch_embed(x) # [b, embed_dim, frames, h/patch_size, w/patch_size]
         # TODO: intrinsics嵌入在后面与之拼接，还是，嵌入于x拼接一起做投影
@@ -703,6 +703,7 @@ class VideoMamba(nn.Module):
         b, e, f, p, q = position.shape
         position = rearrange(position, 'b e f p q -> (b f p q) e')
         position = rearrange(self.croco_decoder.decoder_embed(position), '(b f p q) e -> b e f p q', b=b, f=f, p=p)
+        position = rearrange(position, 'b e f p q -> b f (p q) e')
 
         pdb.set_trace()
         # TODO: 需要[b, f, patches, embed_dim]的feature
@@ -724,13 +725,14 @@ class VideoMamba(nn.Module):
             feat_current_ctx = generate_ctx_views(feat_current)
             # img1 side
             f1, _ = blk1(feat_current[:, 0].contiguous(), feat_current_ctx[:, 0].contiguous(), position[:, 0].contiguous(), pos_ctx[:, 0].contiguous())
-            f1 = f1.unsqueeze(1)
+            f1 = f1.unsqueeze(1) # [b 1 p e]
             # img2 side
             f2, _ = blk2(rearrange(feat_current[:, 1:], "b f p e -> (b f) p e"),
                          rearrange(feat_current_ctx[:, 1:], "b f p e -> (b f) p e"),
-                         rearrange(position[:, 1:], "b f l c -> (b v) l c"),
+                         rearrange(position[:, 1:], "b f l c -> (b f) l c"),
                          rearrange(pos_ctx[:, 1:], "b f p e -> (b f) p e"))
-            f2 = rearrange(f2, "b f p e -> (b f) p e", b=b, f=f-1)
+            # [b*(f-1) p e]
+            f2 = rearrange(f2, "(b f) p e -> b f p e", b=b, f=f-1)
             # store the result
             final_output.append(torch.cat((f1, f2), dim=1)) # concatenate with patches
 
@@ -740,7 +742,8 @@ class VideoMamba(nn.Module):
         # TODO: ↑
 
         last_feature = rearrange(final_output[-1], 'b f p e -> (b f) p e') # TODO: final_outptu[-1] - [(b f) p e] ?
-        last_feature = self.croco_decoder.dec_norm(last_feature)
+        # [b*f p e] 这里的p是(h/p_size)*(w/p_size)*2, 因为前面拼了intrinsic_embed
+        last_feature = self.croco_decoder.dec_norm(last_feature) # [b*f p e]
         final_output[-1] = rearrange(last_feature, '(b f) p e -> b f p e', b=b, f=f)
 
         return final_output
@@ -778,17 +781,20 @@ class VideoMamba(nn.Module):
         """
         pdb.set_trace()
         decoded_feature = self._decoder(mamba_feature, pos)
-        dec_list = list(torch.cat(decoded_feature, dim=0)) # TODO: 是否要取每个回归的末尾？
-        dec_list = [u[:, -1] for u in dec_list]
-        dec_feature_list = list(torch.cat(dec_list, dim=0).chunk(b))
+        # list(shape[b, f, p*2, embed_dim]) -> p*2是因为拼了intrinsic
+        # TODO: 是否要取每个回归的末尾？
+        decoded_feature = [u[:, :, :-1] for u in list(decoded_feature)]
+        # dec_feature_list = list(torch.cat(dec_list, dim=0).chunk(b))
 
+        shape = rearrange(shape, '(b f) c -> b f c', b=b, f=f)
+        video = rearrange(context['video'], '(b f) c h w -> b f c h w', b=b, f=f)
         views = {
             'shape': shape,
-            'video': context['video'],
+            'video': video,
             'position': pos,
             'embeddings': embeddings # [num_patches, frames, batch, embed_dim]
         }
-        return (dec_feature_list, views) if return_views else dec_feature_list
+        return (decoded_feature, views) if return_views else decoded_feature
         # TODO: dec1, dec2, shape1, shape2, view1, view2 = self.backbone(context, return_views=True)  # PE & Proj
 
 

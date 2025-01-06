@@ -172,10 +172,12 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
                 'position': pos,            # [batch, frames, num_patcher, embed_dim]
                 'embeddings': embeddings    # [num_patches, frames, batch, embed_dim]
             }
+            dec_feature: [b, f, p-1, e] * 13
+            p == (h/p_size) * (w/p_size) * 2 | 因为拼了一个intrinsic_embed
         """
         # TODO: 确认fec_feature的形状
-        video = views['video']
-        shape = views['shape']
+        video = views['video'] # [b f c h w] | c=3
+        shape = views['shape'] # [b*f, 2] | 2: (H,W)
         pdb.set_trace()
         with torch.cuda.amp.autocast(enabled=False):
             ... # ldm
