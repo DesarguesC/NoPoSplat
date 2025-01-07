@@ -11,6 +11,9 @@ from safetensors.torch import load_file
 from inspect import isfunction
 from PIL import Image, ImageDraw, ImageFont
 
+from typing import Optional
+import numpy as np
+import visu3d as v3d
 
 Inter = {
     'inter_cubic': cv2.INTER_CUBIC,
@@ -224,3 +227,24 @@ def fix_cond_shapes(model, prompt_condition, uc):
     while prompt_condition.shape[1] < uc.shape[1]:
         prompt_condition = torch.cat((prompt_condition, null_cond.repeat((prompt_condition.shape[0], 1, 1))), axis=1)
     return prompt_condition, uc
+
+
+def camera_posenc(x, min_deg=0, max_deg=15):
+    """Concatenate x and its positional encodings, following NeRF."""
+    if min_deg == max_deg:
+        return x
+    scales = np.array([2**i for i in range(min_deg, max_deg)])
+    print(f'scales.shape = {scales.shape}')
+    xb = np.reshape((x[..., None, :] * scales[:, None]), list(x.shape[:-1]) + [-1])
+    print(f'xb.shape = {xb.shape}')
+    emb = np.sin(np.concatenate([xb, xb + np.pi / 2.], axis=-1)) # sin(2^ix), cos(2^ix), ...
+    print(f'emb.shape = {emb.shape}')
+    return np.concatenate([x, emb], axis=-1)
+
+def create_ray_map(intrinsic_K, R, T, resolution=(512,512)):
+    w2c = v3d.Transform(R=R, t=T)
+    cam_spec = v3d.PinholeCamera(resolution=resolution, K=intrinsic_K)
+
+    rays = v3d.Camera(spec=cam_spec, world_from_cam=w2c).rays()
+    return camera_posenc(rays.pos, min_deg=0, max_deg=15)
+

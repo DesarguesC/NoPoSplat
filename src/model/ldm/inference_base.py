@@ -1,6 +1,7 @@
 import argparse
 import torch
 from omegaconf import OmegaConf
+from typing import NamedTuple
 
 from .models.diffusion.ddim import DDIMSampler
 from .models.diffusion.plms import PLMSSampler
@@ -11,6 +12,20 @@ from .util import fix_cond_shapes, load_model_from_config, read_state_dict
 
 DEFAULT_NEGATIVE_PROMPT = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
                           'fewer digits, cropped, worst quality, low quality'
+
+class Options(NamedTuple):
+    outdir: str = './outputs/'
+    sd_path: str = '../download/v1-5-pruned.ckpt'
+    prompt: str = 'a driving scene with high quality, 4K, highly detailed'
+    neg_prompt: str = 'poor result, implausible'
+    cond_path: str = None
+    sampler: str = 'plms'
+    steps: int = 50
+    vae_ckpt: str = None
+    adapter_ckpt: str = None
+    configs: str = './src/model/ldm/configs/stable-diffusion/sd-v1-inference.yaml'
+
+
 
 
 def get_base_argument_parser() -> argparse.ArgumentParser:
@@ -38,20 +53,20 @@ def get_base_argument_parser() -> argparse.ArgumentParser:
         help='negative prompt',
     )
 
-    parser.add_argument(
-        '--cond_path',
-        type=str,
-        default=None,
-        help='condition image path',
-    )
-
-    parser.add_argument(
-        '--cond_inp_type',
-        type=str,
-        default='image',
-        help='the type of the input condition image, take depth T2I as example, the input can be raw image, '
-        'which depth will be calculated, or the input can be a directly a depth map image',
-    )
+    # parser.add_argument(
+    #     '--cond_path',
+    #     type=str,
+    #     default=None,
+    #     help='condition image path',
+    # )
+    #
+    # parser.add_argument(
+    #     '--cond_inp_type',
+    #     type=str,
+    #     default='image',
+    #     help='the type of the input condition image, take depth T2I as example, the input can be raw image, '
+    #     'which depth will be calculated, or the input can be a directly a depth map image',
+    # )
 
     parser.add_argument(
         '--sampler',
@@ -282,6 +297,9 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
     x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
 
     return x_samples
+
+
+
 
 
 def train_inference(opt, c, model, sampler, adapter_features, cond_model=None, loss_mode=True, append_to_context=None):
