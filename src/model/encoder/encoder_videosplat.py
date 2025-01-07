@@ -61,6 +61,8 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
         self.gs_params_head_type = cfg.gs_params_head_type
 
+        self.PLMSsampler = ...
+
         # TODO: 加高斯head了再放回来
         """
         head_type = 'dpt-video' if cfg.gs_params_head_type == 'dpt-video' else 'dpt'
@@ -180,6 +182,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         shape = views['shape'] # [b*f, 2] | 2: (H,W)
         pdb.set_trace()
         with torch.cuda.amp.autocast(enabled=False):
+            # 原来noposplat的cross-attention思路是用第0帧查询后续所有帧
             ... # ldm
 
 

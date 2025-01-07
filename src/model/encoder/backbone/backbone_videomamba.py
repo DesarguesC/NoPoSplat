@@ -676,9 +676,14 @@ class VideoMamba(nn.Module):
         elif 'state_dict' in ckpt_weights:
             ckpt_weights = ckpt_weights['state_dict'] # backbone_mamba.py - Line 647
             # CrocoDecoder.{k[17:]}
-            ckpt_weights = { k[17:]: v for k, v in ckpt_weights.items() if (k.startswith('encoder.backbone.') and 'decoder_embed' not in k)}
+            new_ckpt = {}
+            for (k, v) in ckpt_weights.items():
+                if k.startswith('encoder.backbone.') and 'decoder_embed' not in k:
+                    new_ckpt[k[17:]] = v
+                else:
+                    del ckpt_weights[k]
+
             # decoder_embed映射重新训练
-            new_ckpt = dict(ckpt_weights)
             if not any(k.startswith('dec_blocks2') for k in ckpt_weights):
                 for key, value in ckpt_weights.items():
                     if key.startswith('dec_blocks'):
