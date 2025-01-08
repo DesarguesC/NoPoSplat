@@ -2,7 +2,9 @@ import argparse
 import torch
 from omegaconf import OmegaConf
 from typing import NamedTuple
+from torch import partial
 
+from typing import List
 from .models.diffusion.ddim import DDIMSampler
 from .models.diffusion.plms import PLMSSampler
 from .modules.encoders.adapter import Adapter, StyleAdapter, Adapter_light
@@ -21,11 +23,22 @@ class Options(NamedTuple):
     cond_path: str = None
     sampler: str = 'plms'
     steps: int = 50
+    device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
     vae_ckpt: str = None
-    adapter_ckpt: str = None
-    configs: str = './src/model/ldm/configs/stable-diffusion/sd-v1-inference.yaml'
+    adapter_ckpt_path: List[str] = [None]
+    config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-inference.yaml'
+    H: int = 512 # default
+    W: int = 512
+    C: int = 4
+    f: int = 8
+    scale: int = 7.5
+    seed: int = 42
+    cond_weight: List[float] = [1., 1.]
+    allow_cond: List[ExtraCondition] = [ExtraCondition.ray, ExtraCondition.feature]
 
 
+def get_opt():
+    return Options()
 
 
 def get_base_argument_parser() -> argparse.ArgumentParser:
@@ -176,7 +189,6 @@ def get_base_argument_parser() -> argparse.ArgumentParser:
 
     return parser
 
-
 def get_sd_models(opt):
     """
     build stable diffusion model, sampler
@@ -196,7 +208,7 @@ def get_sd_models(opt):
 
     return sd_model, sampler
 
-
+# Useless
 def get_t2i_adapter_models(opt):
     config = OmegaConf.load(f"{opt.config}")
     model = load_model_from_config(config, opt.sd_ckpt, opt.vae_ckpt)
@@ -228,39 +240,49 @@ def get_t2i_adapter_models(opt):
     return model, sampler
 
 
-def get_cond_ch(cond_type: ExtraCondition):
-    if cond_type == ExtraCondition.sketch or cond_type == ExtraCondition.canny:
-        return 1
-    return 3
-
-
-def get_adapters(opt, cond_type: ExtraCondition):
-    adapter = {}
-    cond_weight = getattr(opt, f'{cond_type.name}_weight', None)
-    if cond_weight is None:
-        cond_weight = getattr(opt, 'cond_weight')
-    adapter['cond_weight'] = cond_weight
-
-    if cond_type == ExtraCondition.style:
-        adapter['model'] = StyleAdapter(width=1024, context_dim=768, num_head=8, n_layes=3, num_token=8).to(opt.device)
-    elif cond_type == ExtraCondition.color:
-        adapter['model'] = Adapter_light(
-            cin=64 * get_cond_ch(cond_type),
-            channels=[320, 640, 1280, 1280],
-            nums_rb=4).to(opt.device)
+def get_cond_adapter(cond_type: ExtraCondition):
+    # TODO: directly return adapter models
+    # adapter['model-a'] = StyleAdapter(
+    #                         width=1024,
+    #                         context_dim=768,
+    #                         num_head=8,
+    #                         n_layes=3,
+    #                         num_token=8
+    #                     ).to(opt.device)
+    #
+    # adapter['model-b'] = Adapter_light(
+    #                         cin=64 * get_cond_ch(cond_type),
+    #                         channels=[320, 640, 1280, 1280],
+    #                         nums_rb=4
+    #                     ).to(opt.device)
+    # adapter['model-c'] = Adapter(
+    #                         cin=64 * get_cond_ch(cond_type),
+    #                         channels=[320, 640, 1280, 1280][:4],
+    #                         nums_rb=2,
+    #                         ksize=1,
+    #                         sk=True,
+    #                         use_conv=False
+    #                     ).to(opt.device)
+    if cond_type == ExtraCondition.ray:
+        return ...
+    elif cond_type == ExtraCondition.feature:
+        return ...
     else:
-        adapter['model'] = Adapter(
-            cin=64 * get_cond_ch(cond_type),
-            channels=[320, 640, 1280, 1280][:4],
-            nums_rb=2,
-            ksize=1,
-            sk=True,
-            use_conv=False).to(opt.device)
+        raise NotImplementedError('Unrecognized Type')
 
-    ckpt_path = getattr(opt, f'{cond_type.name}_adapter_ckpt', None)
-    if ckpt_path is None:
-        ckpt_path = getattr(opt, 'adapter_ckpt')
-    adapter['model'].load_state_dict(torch.load(ckpt_path))
+def get_latent_adapter(opt, train_mode: bool = True, cond_type: List[ExtraCondition] = [None]):
+    # TODO: refer to app.py to check the usage when calling.
+    adapter = {}
+    adapter['cond_weight'] = getattr(opt, 'cond_weight', [None])
+    adapter['model'] = [get_cond_adapter(cond) for cond in cond_type]
+    if len(adapter['cond_weight']) != len(adapter['model']):
+        adapter['cond_weight'] = [1. for i in range(len(adapter['model']))]
+    ckpt_path_list = getattr(opt, 'adapter_ckpt_path', [None])
+    if not train_mode or len(ckpt_path_list) < len(adapter['model']):
+        adapter['model'] = [
+            adapter['model'][i].load_state_dict(torch.load(ckpt_path_list[i]))
+            for i in range(len(adapter['model']))
+        ]
 
     return adapter
 
@@ -302,7 +324,16 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
 
 
 
-def train_inference(opt, c, model, sampler, adapter_features, cond_model=None, loss_mode=True, append_to_context=None):
+def train_inference(opt, c, model, sampler, adapter_features, cond_model=None, loss_mode=True, append_to_context=None, *kwargs):
+
+    """
+        kwargs: {
+            "mambda": {"dec_feat": ..., "videos": ..., "shapes": ...},
+            "ray": <ray-map> # shaped: [b ? ? ?],
+            "adapter": {...}
+        }
+    """
+
     # get text embedding
     if opt.scale != 1.0:
         uc = model.get_learned_conditioning([DEFAULT_NEGATIVE_PROMPT])
@@ -314,11 +345,8 @@ def train_inference(opt, c, model, sampler, adapter_features, cond_model=None, l
         opt.H = 512
         opt.W = 512
         print('no------'*10)
-    # print(f'opt shape (inference): ({opt.H}, {opt.W})')
     shape = [opt.C, opt.H // opt.factor, opt.W // opt.factor]    # fit the adapter feature
     assert (opt.bsize//2)*2 == opt.bsize, 'bad batch size.'
-    # print(f'inference shape: {shape}')
-    # DDIMSampler
    
     *_, ratios, samples = sampler.sample(
         S=opt.steps,
@@ -333,6 +361,8 @@ def train_inference(opt, c, model, sampler, adapter_features, cond_model=None, l
         append_to_context=append_to_context,
         cond_tau=opt.cond_tau,
         loss_mode=loss_mode,  # need to be trained
+        **kwargs
+
     )
     assert samples != None, '?'
     # print(len(ratios['alphas']), len(samples))

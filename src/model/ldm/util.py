@@ -241,10 +241,10 @@ def camera_posenc(x, min_deg=0, max_deg=15):
     print(f'emb.shape = {emb.shape}')
     return np.concatenate([x, emb], axis=-1)
 
+# TODO: [B 3 H W] is in need ?
 def create_ray_map(intrinsic_K, R, T, resolution=(512,512)):
     w2c = v3d.Transform(R=R, t=T)
     cam_spec = v3d.PinholeCamera(resolution=resolution, K=intrinsic_K)
-
     rays = v3d.Camera(spec=cam_spec, world_from_cam=w2c).rays()
     return camera_posenc(rays.pos, min_deg=0, max_deg=15)
 

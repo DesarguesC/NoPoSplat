@@ -167,6 +167,7 @@ class EncoderNoPoSplatMulti(Encoder[EncoderNoPoSplatCfg]):
 
             # for the 3DGS heads
             if self.gs_params_head_type == 'dpt_gs':
+                # (x, depths, imgs, shapes)
                 GS_res1 = self.gaussian_param_head([tok[:, 0].float() for tok in dec_feat], all_mean_res[0]['pts3d'].permute(0, 3, 1, 2), images[:, 0, :3], shape[0, 0].cpu().tolist())
                 GS_res1 = rearrange(GS_res1, "b d h w -> b (h w) d")
                 all_other_params.append(GS_res1)
