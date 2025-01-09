@@ -207,7 +207,7 @@ def get_base_argument_parser() -> argparse.ArgumentParser:
 
     return parser
 
-def get_sd_models(opt):
+def get_sd_models(opt, return_cfg = False):
     """
     build stable diffusion model, sampler
     """
@@ -223,8 +223,10 @@ def get_sd_models(opt):
         sampler = DDIMSampler(model)
     else:
         raise NotImplementedError
-
-    return sd_model, sampler
+    if return_cfg:
+        return sd_model, sampler, config
+    else:
+        return sd_model, sampler
 
 # Useless
 def get_t2i_adapter_models(opt):

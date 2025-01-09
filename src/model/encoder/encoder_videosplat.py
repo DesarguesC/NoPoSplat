@@ -66,8 +66,8 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         self.gs_params_head_type = cfg.gs_params_head_type
 
 
-        self.sd_opt = make_options()
-        self.sd_model, self.sampler = get_sd_models(self.sd_opt)
+        self.sd_opt = make_options(train_mode = (cfg.mode is not 'test'))
+        self.sd_model, self.sampler, self.sd_cfg = get_sd_models(self.sd_opt, return_cfg=True)
         self.adapter_dict = get_latent_adapter(self.sd_opt, train_mode=train_mode, cond_type=self.sd_opt.allow_cond, device=self.device)
         # 'model': dict 'cond_weight': list
 
