@@ -52,6 +52,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
         self.backbone = get_backbone(cfg.backbone, 3) # VideoMamba
         self.train_mode = train_mode
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         self.pose_free = cfg.pose_free
         if self.pose_free:
@@ -67,7 +68,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
         self.sd_opt = make_options()
         self.sd_model, self.sampler = get_sd_models(self.sd_opt)
-        self.adapter_dict = get_latent_adapter(self.sd_opt, train_mode=train_mode, cond_type=self.sd_opt.allow_cond)
+        self.adapter_dict = get_latent_adapter(self.sd_opt, train_mode=train_mode, cond_type=self.sd_opt.allow_cond, device=self.device)
         # 'model': dict 'cond_weight': list
 
 
@@ -160,7 +161,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         context: dict,
         global_step: int = 0,
         visualization_dump: Optional[dict] = None,
-    ) -> Gaussians:
+    ):
 
         """
             Available:
@@ -336,7 +337,8 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
             context: dict,
             global_step: int = 0,
             visualization_dump: Optional[dict] = None,
-    ) -> Gaussians:
+            parrallel: bool = False
+    ):
         if self.head_control_type == SOLE_HEAD:
             return self.forward_one(context, global_step, visualization_dump)
         elif self.head_control_type == MULTI_HEAD:

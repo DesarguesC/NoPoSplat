@@ -36,9 +36,27 @@ class Options(NamedTuple):
     cond_weight: List[float] = [1., 1.]
     allow_cond: List[ExtraCondition] = [ExtraCondition.ray, ExtraCondition.feature]
 
+class Train_Options(Options):
+    batch_size: int = 4
+    epochs: int = 10000
+    num_workers: int = 8 # cpu numbers * 2
+    auto_resume: bool = True
+    config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-train.yaml'
+    resume_state_path: str
+    name: str = "mamba-feature"
+    print_fq: int = 100
+    H: int = 224
+    W: int = 224
+    C: int = 4
+    f: int = 8
+    sample_steps: int = 50
+    n_samples: int = 1
+    gpus: list = [0,1,2,3] # gpu idx
+    local_rank: int = 0
+    launcher: str = 'pytorch'
 
-def make_options():
-    return Options()
+def make_options(train_mode = False):
+    return Train_Options if train_mode else Options()
 
 
 def get_base_argument_parser() -> argparse.ArgumentParser:
@@ -240,7 +258,7 @@ def get_t2i_adapter_models(opt):
     return model, sampler
 
 
-def get_cond_adapter(cond_type: ExtraCondition):
+def get_cond_adapter(cond_type: ExtraCondition, device='cuda'):
     # TODO: directly return adapter models
     # adapter['model-a'] = StyleAdapter(
     #                         width=1024,
@@ -264,17 +282,17 @@ def get_cond_adapter(cond_type: ExtraCondition):
     #                         use_conv=False
     #                     ).to(opt.device)
     if cond_type == ExtraCondition.ray:
-        return ...
+        return ... # .to(device)
     elif cond_type == ExtraCondition.feature:
-        return ...
+        return ... # .to(device)
     else:
         raise NotImplementedError('Unrecognized Type')
 
-def get_latent_adapter(opt, train_mode: bool = True, cond_type: List[ExtraCondition] = [None]):
+def get_latent_adapter(opt, train_mode: bool = True, cond_type: List[ExtraCondition] = [None], device = 'cuda'):
     # TODO: refer to app.py to check the usage when calling.
     adapter = {}
     adapter['cond_weight'] = getattr(opt, 'cond_weight', [None])
-    adapter['model'] = {str(cond): get_cond_adapter(cond) for cond in cond_type}
+    adapter['model'] = {str(cond): get_cond_adapter(cond, device=device) for cond in cond_type}
     if len(adapter['cond_weight']) != len(adapter['model']):
         adapter['cond_weight'] = [1. for i in range(len(adapter['model']))]
     ckpt_path_list = getattr(opt, 'adapter_ckpt_path', [None])
