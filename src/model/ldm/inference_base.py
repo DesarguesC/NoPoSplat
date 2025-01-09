@@ -1,5 +1,5 @@
 import argparse
-import torch
+import torch, pdb
 from omegaconf import OmegaConf
 from typing import NamedTuple
 from torch import partial
@@ -27,8 +27,8 @@ class Options(NamedTuple):
     vae_ckpt: str = None
     adapter_ckpt_path: List[str] = [None]
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-inference.yaml'
-    H: int = 512 # default
-    W: int = 512
+    H: int = 224 # default
+    W: int = 224
     C: int = 4
     f: int = 8
     scale: int = 7.5
@@ -37,7 +37,7 @@ class Options(NamedTuple):
     allow_cond: List[ExtraCondition] = [ExtraCondition.ray, ExtraCondition.feature]
 
 
-def get_opt():
+def make_options():
     return Options()
 
 
@@ -274,7 +274,7 @@ def get_latent_adapter(opt, train_mode: bool = True, cond_type: List[ExtraCondit
     # TODO: refer to app.py to check the usage when calling.
     adapter = {}
     adapter['cond_weight'] = getattr(opt, 'cond_weight', [None])
-    adapter['model'] = [get_cond_adapter(cond) for cond in cond_type]
+    adapter['model'] = {str(cond): get_cond_adapter(cond) for cond in cond_type}
     if len(adapter['cond_weight']) != len(adapter['model']):
         adapter['cond_weight'] = [1. for i in range(len(adapter['model']))]
     ckpt_path_list = getattr(opt, 'adapter_ckpt_path', [None])
@@ -287,14 +287,15 @@ def get_latent_adapter(opt, train_mode: bool = True, cond_type: List[ExtraCondit
     return adapter
 
 
-def diffusion_inference(opt, model, sampler, adapter_features, append_to_context=None, **kwargs):
+def diffusion_inference(opt, model, sampler, adapter_features, batch_size=1, append_to_context=None):
     # get text embedding
     c = model.get_learned_conditioning([opt.prompt])
     if opt.scale != 1.0:
         uc = model.get_learned_conditioning([opt.neg_prompt])
     else:
         uc = None
-    c, uc = fix_cond_shapes(model, c, uc)
+    pdb.set_trace()
+    c, uc = fix_cond_shapes(model, c, uc) # batch size of c ?
 
     if not hasattr(opt, 'H'):
         opt.H = 512
@@ -304,7 +305,7 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
     samples_latents, _ = sampler.sample(
         S=opt.steps,
         conditioning=c,
-        batch_size=1,
+        batch_size=batch_size,
         shape=shape,
         verbose=False,
         unconditional_guidance_scale=opt.scale,
@@ -327,10 +328,9 @@ def diffusion_inference(opt, model, sampler, adapter_features, append_to_context
 def train_inference(opt, c, model, sampler, adapter_features, cond_model=None, loss_mode=True, append_to_context=None, *kwargs):
 
     """
-        kwargs: {
+        adapter_features: {
             "mambda": {"dec_feat": ..., "videos": ..., "shapes": ...},
             "ray": <ray-map> # shaped: [b ? ? ?],
-            "adapter": {...}
         }
     """
 

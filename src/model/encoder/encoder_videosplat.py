@@ -22,6 +22,8 @@ from .encoder import Encoder
 from .encoder_noposplat import EncoderNoPoSplatCfg
 from .visualization.encoder_visualizer_epipolar_cfg import EncoderVisualizerEpipolarCfg
 
+from ..ldm import *
+
 
 inf = float('inf')
 UNDEFINED_VALUE = 'yet this value has not been set'
@@ -40,7 +42,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
     backbone: nn.Module
     gaussian_adapter: GaussianAdapter
 
-    def __init__(self, cfg: EncoderNoPoSplatCfg) -> None:
+    def __init__(self, cfg: EncoderNoPoSplatCfg, train_mode: bool = False) -> None:
         super().__init__(cfg)
         self.head_control_type = UNDEFINED_VALUE # unset
         """
@@ -49,6 +51,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         """
 
         self.backbone = get_backbone(cfg.backbone, 3) # VideoMamba
+        self.train_mode = train_mode
 
         self.pose_free = cfg.pose_free
         if self.pose_free:
@@ -61,9 +64,15 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
         self.gs_params_head_type = cfg.gs_params_head_type
 
-        self.PLMSsampler = ...
 
-        # TODO: 加高斯head了再放回来
+        self.sd_opt = make_options()
+        self.sd_model, self.sampler = get_sd_models(self.sd_opt)
+        self.adapter_dict = get_latent_adapter(self.sd_opt, train_mode=train_mode, cond_type=self.sd_opt.allow_cond)
+        # 'model': dict 'cond_weight': list
+
+
+        # TODO: params = list(xx.backbone.parameters()) + list(xx.adapter_dict['ray']) + list(xx.adapter_dict['feature'])
+        # optimizer = torch.optim.AdamW(params, lr=...)
         """
         head_type = 'dpt-video' if cfg.gs_params_head_type == 'dpt-video' else 'dpt'
         output_type = 'pts3d-video' if cfg.gs_params_head_type == 'dpt-video' else \
@@ -160,7 +169,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
                 param-head:
                     self.gaussian_param_head_sole
         """
-
+        ray_maps = context['ray'] # [b f c h w]
         video = context['video']
         device = video.device
         b, f, _, h, w = video.shape
@@ -180,13 +189,27 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         # TODO: 确认fec_feature的形状
         video = views['video'] # [b f c h w] | c=3
         shape = views['shape'] # [b*f, 2] | 2: (H,W)
+        allow_cond = list(self.sd_opt.allow_cond)
+        cond_weight = list(self.sd_opt.cond_weight)
+        input_list = [ray_maps, dec_feature]
+        self.sd_opt.H, self.sd_opt.W = shape[0], shape[1]
         pdb.set_trace()
         with torch.cuda.amp.autocast(enabled=False):
             # 原来noposplat的cross-attention思路是用第0帧查询后续所有帧
             ... # ldm
+            adapter_feature = [
+                self.adapter_dict[allow_cond[i]](input_list[i]) for i in range(len(allow_cond))
+            ] # List[list]
+            L = len(adapter_feature[0])
+            concat_feat = [
+                cond_weight[0] * adapter_feature[0][i] + cond_weight[1] * adapter_feature[1][i]
+                    for i in range(L)
+            ]
+            # b = 1 when inference, b <- b * f
+            concat_feat = [u.squeeze(0) for u in concat_feat]
+            x_samples = diffusion_inference(self.sd_opt, self.sd_model, concat_feat, batch_size=video.shape[0]*video.shape[1]) # [b f c h w]
 
-
-
+        return x_samples
 
     # 我倾向于这个会work
     # Gaussian_Head + VehiclePose_Head + InstanceMaskedAttention_Head works at ↓
