@@ -1,7 +1,8 @@
 import json
 import cv2
-import os, pdb
+import os, pdb, torch
 import open3d as o3d
+import visu3d as v3d
 from copy import copy
 import torch.nn as nn
 from basicsr.utils import img2tensor, tensor2img
@@ -58,6 +59,60 @@ def render_pcd_view_img(pcd_point, K, trans, shape):
     return np.asarray(vis.capture_screen_float_buffer(do_render=True))
 
 
+def capture_point_cloud_render(pcd, K, trans, shape):
+    # TODO: pytorch3d ?
+    return ...
+
+def posenc_nerf(x, min_deg=0, max_deg=15):
+    """Concatenate x and its positional encodings, following NeRF."""
+    if min_deg == max_deg:
+        return x
+    scales = np.array([2**i for i in range(min_deg, max_deg)])
+    # print(f'scales.shape = {scales.shape}')
+    xb = np.reshape((x[..., None, :] * scales[:, None]), list(x.shape[:-1]) + [-1])
+    # print(f'xb.shape = {xb.shape}')
+    emb = np.sin(np.concatenate([xb, xb + np.pi / 2.], axis=-1)) # sin(2^ix), cos(2^ix), ...
+    # print(f'emb.shape = {emb.shape}')
+    return np.concatenate([x, emb], axis=-1)
+
+def camera2ray(transform, intrinsic, resolution):
+    R, T = transform[0:3, 0:3], transform[0:3,-1]
+    w2c = v3d.Transform(R=R, t=T)
+    cam_spec = v3d.PinholeCamera(resolution=resolution, K=intrinsic)
+    rays = v3d.Camera(spec=cam_spec, world_from_cam=w2c).rays()
+    ray_map = np.asarray(rays) # -> resolution = (H, W)
+    # TODO: for optimization
+    # pos_emb_pos = posenc_nerf(rays.pos, min_deg=0, max_deg=15) # (H, W, 93)
+    return rearrange(repeat(ray_map[None,:], '1 ... -> c ...', c = 3), 'c h w -> h w c')
+
+
+
+
+def isContinue(id_1: str, id_2: str) -> bool:
+    # id_1 > id_2
+    u_1, u_2 = id_1.split('_'), id_2.split('_')
+    assert len(u_1) == 2 and len(u_2) == 2, f'u_1 = {u_1}, u2 == {u_2}'
+    return (u_1[0] == u_2[0] and str(int(u_1[1]) + 1) == u_2[1]) or (str(int(u_1[0]) + 1) == u_2[0])
+
+def IsInOneVideo(id_list, idx_1, idx_2) -> bool:
+    assert idx_2 > idx_1
+    while isContinue(id_list[idx_1], id_list[idx_1+1]) or isContinue(id_list[idx_2-1], id_list[idx_2]):
+        idx_1 += 1
+        idx_2 -= 1
+        if idx_2 <= idx_1: return True
+    return False
+
+
+def getStartEndList(id_list, frame):
+    # [start_index, end_index) -> [a, b)
+    se_list = []
+    pdb.set_trace()
+    for i in range(len(id_list)-frame):
+        if IsInOneVideo(i, i+frame-1):
+            se_list.append((i, i+frame))
+    # TODO: convert to one line expression after debugging
+    return se_list
+
 
 class TumTrafDataset():
     def __init__(self, root_path, frame):
@@ -65,6 +120,8 @@ class TumTrafDataset():
         self.test = os.path.join(root_path, 'test')
         self.train = os.path.join(root_path, 'train')
         self.val = os.path.join(root_path, 'val')
+
+        self.resolution = (1200, 1960)
 
         self.south1_path = os.path.join(self.train, 'images', 's110_camera_basler_south1_8mm')
         self.south2_path = os.path.join(self.train, 'images', 's110_camera_basler_south2_8mm')
@@ -74,6 +131,7 @@ class TumTrafDataset():
         train_list = os.listdir(sorted(cfg_base_path))
         # TODO: need 'src'&'dst'&'transform'&'src img path'&'dst img path'
         self.train_data_src = []
+        self.id_list = []
         for file in train_list:
             if file.endswith('.json'):
                 with open(os.path.join(file), 'r') as f:
@@ -81,12 +139,54 @@ class TumTrafDataset():
                 key = list(u['openlabel']['frames'])[0]
                 file_dict = u['openlabel']['frames'][key]['frame_properties']
                 img_list = sorted(file_dict['image_file_names'])
+                tmp = img_list[0].split('_')
+                id_num = f'{tmp[0]}_{tmp[1]}'
+                self.id_list.append(id_num)
                 self.train_data_src.append(
-                    {
-                        'south1': os.path.join(self.south1_path, img_list[-1]),
-                        'south2': os.path.join(self.south2_path, img_list[-2]),
-                        'vehicle': os.path.join(self.vehicle_path, img_list[1]),
-                        'transform': np.array(file_dict['transforms']['vehicle_lidar_robosense_to_s110_lidar_ouster_south']['transform_src_to_dst']['matrix4x4'], dtype=np.float32)
+                        {
+                            id_num : {
+                            'south1': os.path.join(self.south1_path, img_list[-1]),
+                            'south2': os.path.join(self.south2_path, img_list[-2]),
+                            'vehicle': os.path.join(self.vehicle_path, img_list[1]),
+                            'transform': np.array(
+                                file_dict['transforms']['vehicle_lidar_robosense_to_s110_lidar_ouster_south'][
+                                    'transform_src_to_dst']['matrix4x4'], dtype=np.float32)
+                        }
                     }
                 )
+        self.id_list.sort()
+        self.start_end_list = getStartEndList(self.id_list, self.frame)
+
+    def convert_dict(self, item, use_south1=True):
+        # TODO: choose from 'south1' and 'south2': which is the needed?
+        return {
+            'video': item['south1' if use_south1 else 'south2'],
+            'ray': item['transform'],
+        }
+        # 'video', ray'
+
+    def __len__(self):
+        return len(self.start_end_list)
+
+    def __getitem__(self, idx):
+        start, end = self.start_end_list[idx]
+        # id_list = self.id_list[start:end]
+        dict_list = self.train_data_src[start:end]
+        item_dict = {
+            'south1': [], 'south2': [], 'vehicle': [], 'transform': []
+        }
+        for u in dict_list:
+            item_dict['south1'].append(img2tensor(cv2.imread(u['south1'])[None,:]))
+            item_dict['south2'].append(img2tensor(cv2.imread(u['south2'])[None,:]))
+            item_dict['vehicle'].append(img2tensor(cv2.imread(u['vehicle'])[None,:]))
+            item_dict['transform'].append(camera2ray(u['transform'], K_inf, self.resolution)[None,:])
+        item_dict['south1'] = torch.cat(item_dict['south1'], dim=0)[None, :]
+        item_dict['south2'] = torch.cat(item_dict['south2'], dim=0)[None, :]
+        item_dict['vehicle'] = torch.cat(item_dict['vehicle'], dim=0)[None, :]
+        item_dict['transform'] = torch.cat(item_dict['transform'], dim=0)[None, :]
+
+        return self.convert_dict(item_dict)
+
+
+
 
