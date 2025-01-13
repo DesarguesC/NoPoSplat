@@ -6,6 +6,7 @@ import numpy as np
 from einops import repeat, rearrange
 from utils import positional_encode, camera2ray, load_v2x_intrinsics, load_v2x_transform
 from torch.nn import functional as F
+from functools import partial
 
 # root_path = '../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)/'
 # TODO: prompt -> "inside the car"
@@ -25,6 +26,8 @@ class V2XSeqDataset():
         self.vehicle_config_path = os.path.join(root_path, 'V2X-Seq-SPD', 'vehicle-side/data_info.json')
         self.infrastructure_config_path = os.path.join(root_path, 'V2X-Seq-SPD', 'infrastructure-side/data_info.json')
 
+        H, W = self.resolution
+        self.downsampler = partial(F.interpolate, size=(H, W), mode='bilinear')
         # img-id ~ calib path list
         with open(self.infrastructure_config_path, 'r') as f:
             inf_cfg = json.load(f)
@@ -104,12 +107,11 @@ class V2XSeqDataset():
         item_dict = {}
         item_dict['video'] = torch.cat([img2tensor(cv2.imread(u))[None,:] for u in self.infrastructure_list[idx]], dim=0) # [f 3 h w]
         item_dict['ray'] = torch.cat([u[None, :] for u in self.ray_map_list[idx]])[None, :] # [f h w 3]
-        item_dict['intirnsic'] = torch.cat([u[None, :] for u in self.inf_intrinsic_list[idx]])[None, :] # [f 3 3]
+        item_dict['intrinsic'] = torch.cat([u[None, :] for u in self.inf_intrinsic_list[idx]])[None, :] # [f 3 3]
         item_dict['vehicle'] = torch.cat([img2tensor(cv2.imread(u))[None,:] for u in self.vehicle_list[idx]], dim=0) # [f 3 h w]
 
-        H, W = self.resolution[0] // self.downsample, self.resolution[1] // self.downsample
-        item_dict['video'] = F.interpolate(item_dict['video'], size=(H, W), mode='bilinear')[None, :]
-        item_dict['ray'] = F.interpolate( item_dict['ray'], size=(H, W), mode='bilinear')[None, :]
-        item_dict['vehicle'] = F.interpolate(item_dict['vehicle'], size=(H, W), mode='bilinear')[None, :]
+        item_dict['video'] = self.downsampler(item_dict['video'])[None, :]
+        item_dict['ray'] = self.downsampler(item_dict['ray'])[None, :]
+        item_dict['vehicle'] = self.downsampler(item_dict['vehicle'])[None, :]
 
         return item_dict

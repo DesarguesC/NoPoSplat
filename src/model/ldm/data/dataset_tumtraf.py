@@ -5,6 +5,8 @@ import open3d as o3d
 from copy import copy
 import torch.nn as nn
 from basicsr.utils import img2tensor, tensor2img
+from functools import partial
+from torch.nn import functional as F
 from typing import Optional
 from random import randint
 import numpy as np
@@ -93,13 +95,15 @@ def getStartEndList(id_list, frame):
 # root_path = '../download/tumtraf_v2x_cooperative_perception_dataset'
 
 class TumTrafDataset():
-    def __init__(self, root_path, frame):
+    def __init__(self, root_path, frame, resolution=(1200, 1920), downsample=8):
         self.frame = frame # video_mamba using
         self.test = os.path.join(root_path, 'test')
         self.train = os.path.join(root_path, 'train')
         self.val = os.path.join(root_path, 'val')
-
-        self.resolution = (1200, 1960)
+        self.resolution = resolution
+        H, W = self.resolution
+        self.downsample = downsample
+        self.downsampler = partial(F.interpolate, size=(H, W), mode='bilinear')
 
         self.south1_path = os.path.join(self.train, 'images', 's110_camera_basler_south1_8mm')
         self.south2_path = os.path.join(self.train, 'images', 's110_camera_basler_south2_8mm')
@@ -138,6 +142,7 @@ class TumTrafDataset():
     def convert_dict(self, item, use_south1=True):
         # TODO: choose from 'south1' and 'south2': which is the needed?
         return {
+            'vehicle': item['vehicle'], # g.t.
             'intrinsic': item['inf-intrinsic'],
             'video': item['south1' if use_south1 else 'south2'],
             'ray': item['transform'],
@@ -161,13 +166,13 @@ class TumTrafDataset():
             item_dict['transform'].append(camera2ray(u['transform'], K_veh, self.resolution)[None,:])
             item_dict['inf-intrinsic'].append(K_inf)
 
-        item_dict['south1'] = torch.cat(item_dict['south1'], dim=0)[None, :]
-        item_dict['south2'] = torch.cat(item_dict['south2'], dim=0)[None, :]
-        item_dict['vehicle'] = torch.cat(item_dict['vehicle'], dim=0)[None, :]
-        item_dict['transform'] = torch.cat(item_dict['transform'], dim=0)[None, :]
+        item_dict['south1'] = self.downsampler(torch.cat(item_dict['south1'], dim=0))[None, :]
+        item_dict['south2'] = self.downsampler(torch.cat(item_dict['south2'], dim=0))[None, :]
+        item_dict['vehicle'] = self.downsampler(torch.cat(item_dict['vehicle'], dim=0))[None, :]
+        item_dict['transform'] = self.downsampler(torch.cat(item_dict['transform'], dim=0))[None, :]
 
         return self.convert_dict(item_dict)
 
 
-
+        # TODO: downsample
 
