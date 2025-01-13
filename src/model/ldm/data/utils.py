@@ -4,14 +4,14 @@ import cv2
 import numpy as np
 import visu3d as v3d
 from einops import repeat, rearrange
-
+import json
 from torchvision.transforms import transforms
 from torchvision.transforms.functional import to_tensor
 from transformers import CLIPProcessor
 
 from basicsr.utils import img2tensor
 
-def posenc_nerf(x, min_deg=0, max_deg=15):
+def positional_encode(x, min_deg=0, max_deg=15):
     """Concatenate x and its positional encodings, following NeRF."""
     if min_deg == max_deg:
         return x
@@ -30,8 +30,28 @@ def camera2ray(transform, intrinsic, resolution):
     rays = v3d.Camera(spec=cam_spec, world_from_cam=w2c).rays()
     ray_map = np.asarray(rays) # -> resolution = (H, W)
     # TODO: for optimization
-    # pos_emb_pos = posenc_nerf(rays.pos, min_deg=0, max_deg=15) # (H, W, 93)
+    # pos_emb_pos = positional_encode(rays.pos, min_deg=0, max_deg=15) # (H, W, 93)
     return rearrange(repeat(ray_map[None,:], '1 ... -> c ...', c = 3), 'c h w -> h w c')
+
+def load_v2x_intrinsics(path, return_res=False):
+    # return np.ndarray
+    with open(path, 'r') as f:
+        u = json.load(f)
+    resolution = (u['height'], u['width'])
+    K = np.array(u['cam_K']).reshape((3,3))
+    if return_res:
+        return K, resolution
+    else:
+        return K
+
+def load_v2x_transform(path):
+    with open(path, 'r') as f:
+        u = json.load(f)
+    trans = np.zeros((4,4), dtype=np.float32)
+    trans[0:3, 0:3] = np.array(u['rotation'])
+    trans[0:3, -1] = np.array(u['translation']).squeeze()
+    trans[-1, -1] = 1.
+    return trans
 
 
 class AddCannyFreezeThreshold(object):
