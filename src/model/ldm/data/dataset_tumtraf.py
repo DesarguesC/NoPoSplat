@@ -8,12 +8,12 @@ from basicsr.utils import img2tensor, tensor2img
 from typing import Optional
 from random import randint
 import numpy as np
-from utils import posenc_nerf, camera2ray
+from utils import positional_encode, camera2ray
 
 
-K_veh = np.array([[2730.3754, 0., 960.], [0., 2730.3754, 600.], [0., 0., 1.]])
+K_veh = np.array([[2730.3754, 0., 960.], [0., 2730.3754, 600.], [0., 0., 1.]]) # -> create camera ray
 # Basler ace acA1920-50gc, 1920×1200, Sony IMX174 with 16 mm lenses
-K_inf = np.array([[1365.1877, 0., 960.], [0., 1365.1877, 600.], [0., 0., 1.]])
+K_inf = np.array([[1365.1877, 0., 960.], [0., 1365.1877, 600.], [0., 0., 1.]]) # video mamba input
 # Basler ace acA1920-50gc, 1920×1200, Sony IMX174 with 8 mm lenses
 
 
@@ -138,6 +138,7 @@ class TumTrafDataset():
     def convert_dict(self, item, use_south1=True):
         # TODO: choose from 'south1' and 'south2': which is the needed?
         return {
+            'intrinsic': item['inf-intrinsic'],
             'video': item['south1' if use_south1 else 'south2'],
             'ray': item['transform'],
         }
@@ -151,13 +152,15 @@ class TumTrafDataset():
         # id_list = self.id_list[start:end]
         dict_list = self.train_data_src[start:end]
         item_dict = {
-            'south1': [], 'south2': [], 'vehicle': [], 'transform': []
+            'south1': [], 'south2': [], 'vehicle': [], 'transform': [], 'inf-intrinsic': []
         }
         for u in dict_list:
             item_dict['south1'].append(img2tensor(cv2.imread(u['south1'])[None,:]))
             item_dict['south2'].append(img2tensor(cv2.imread(u['south2'])[None,:]))
             item_dict['vehicle'].append(img2tensor(cv2.imread(u['vehicle'])[None,:]))
-            item_dict['transform'].append(camera2ray(u['transform'], K_inf, self.resolution)[None,:])
+            item_dict['transform'].append(camera2ray(u['transform'], K_veh, self.resolution)[None,:])
+            item_dict['inf-intrinsic'].append(K_inf)
+
         item_dict['south1'] = torch.cat(item_dict['south1'], dim=0)[None, :]
         item_dict['south2'] = torch.cat(item_dict['south2'], dim=0)[None, :]
         item_dict['vehicle'] = torch.cat(item_dict['vehicle'], dim=0)[None, :]
