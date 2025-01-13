@@ -2,14 +2,14 @@ import json
 import cv2
 import os, pdb, torch
 import open3d as o3d
-import visu3d as v3d
 from copy import copy
 import torch.nn as nn
 from basicsr.utils import img2tensor, tensor2img
 from typing import Optional
 from random import randint
 import numpy as np
-from einops import repeat, rearrange
+from utils import posenc_nerf, camera2ray
+
 
 K_veh = np.array([[2730.3754, 0., 960.], [0., 2730.3754, 600.], [0., 0., 1.]])
 # Basler ace acA1920-50gc, 1920×1200, Sony IMX174 with 16 mm lenses
@@ -63,29 +63,6 @@ def capture_point_cloud_render(pcd, K, trans, shape):
     # TODO: pytorch3d ?
     return ...
 
-def posenc_nerf(x, min_deg=0, max_deg=15):
-    """Concatenate x and its positional encodings, following NeRF."""
-    if min_deg == max_deg:
-        return x
-    scales = np.array([2**i for i in range(min_deg, max_deg)])
-    # print(f'scales.shape = {scales.shape}')
-    xb = np.reshape((x[..., None, :] * scales[:, None]), list(x.shape[:-1]) + [-1])
-    # print(f'xb.shape = {xb.shape}')
-    emb = np.sin(np.concatenate([xb, xb + np.pi / 2.], axis=-1)) # sin(2^ix), cos(2^ix), ...
-    # print(f'emb.shape = {emb.shape}')
-    return np.concatenate([x, emb], axis=-1)
-
-def camera2ray(transform, intrinsic, resolution):
-    R, T = transform[0:3, 0:3], transform[0:3,-1]
-    w2c = v3d.Transform(R=R, t=T)
-    cam_spec = v3d.PinholeCamera(resolution=resolution, K=intrinsic)
-    rays = v3d.Camera(spec=cam_spec, world_from_cam=w2c).rays()
-    ray_map = np.asarray(rays) # -> resolution = (H, W)
-    # TODO: for optimization
-    # pos_emb_pos = posenc_nerf(rays.pos, min_deg=0, max_deg=15) # (H, W, 93)
-    return rearrange(repeat(ray_map[None,:], '1 ... -> c ...', c = 3), 'c h w -> h w c')
-
-
 
 
 def isContinue(id_1: str, id_2: str) -> bool:
@@ -108,11 +85,12 @@ def getStartEndList(id_list, frame):
     se_list = []
     pdb.set_trace()
     for i in range(len(id_list)-frame):
-        if IsInOneVideo(i, i+frame-1):
-            se_list.append((i, i+frame))
+        if IsInOneVideo(i, i + frame - 1):
+            se_list.append((i, i + frame))
     # TODO: convert to one line expression after debugging
     return se_list
 
+# root_path = '../download/tumtraf_v2x_cooperative_perception_dataset'
 
 class TumTrafDataset():
     def __init__(self, root_path, frame):
