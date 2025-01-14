@@ -8,7 +8,7 @@ from basicsr.utils import (get_env_info, get_root_logger, get_time_str,
 from basicsr.utils.options import copy_opt_file, dict2str
 from omegaconf import OmegaConf
 
-from src.model.ldm.data.dataset_depth import DepthDataset
+from src.model.ldm.data import TumTrafDataset, V2XSeqDataset
 from basicsr.utils.dist_util import get_dist_info, init_dist, master_only
 from src.model.ldm.modules.encoders.adapter import Adapter
 from src.model.ldm.util import load_model_from_config
@@ -114,7 +114,7 @@ def main(cfg_dict: DictConfig):
     torch.cuda.set_device(opt.local_rank)
 
     # TODO: load data
-    train_dataset = DepthDataset('datasets/laion_depth_meta_v1.txt')
+    train_dataset = TumTrafDataset(root_path='../download/tumtraf_v2x_cooperative_perception_dataset', frame=opt.frame)
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,

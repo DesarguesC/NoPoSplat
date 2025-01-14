@@ -95,7 +95,7 @@ def getStartEndList(id_list, frame):
 # root_path = '../download/tumtraf_v2x_cooperative_perception_dataset'
 
 class TumTrafDataset():
-    def __init__(self, root_path, frame, resolution=(1200, 1920), downsample=8):
+    def __init__(self, root_path, frame, mode='train', resolution=(1200, 1920), downsample=8):
         self.frame = frame # video_mamba using
         self.test = os.path.join(root_path, 'test')
         self.train = os.path.join(root_path, 'train')
@@ -105,14 +105,17 @@ class TumTrafDataset():
         self.downsample = downsample
         self.downsampler = partial(F.interpolate, size=(H, W), mode='bilinear')
 
-        self.south1_path = os.path.join(self.train, 'images', 's110_camera_basler_south1_8mm')
-        self.south2_path = os.path.join(self.train, 'images', 's110_camera_basler_south2_8mm')
-        self.vehicle_path = os.path.join(self.train, 'images', 'vehicle_camera_basler_16mm')
+        assert mode in ['train', 'test', 'val']
+        self.use = getattr(self, mode)
+
+        self.south1_path = os.path.join(self.use, 'images', 's110_camera_basler_south1_8mm')
+        self.south2_path = os.path.join(self.use, 'images', 's110_camera_basler_south2_8mm')
+        self.vehicle_path = os.path.join(self.use, 'images', 'vehicle_camera_basler_16mm')
 
         cfg_base_path = os.path.join(self.train, 'labels_point_clouds', 's110_lidar_ouster_south_and_vehicle_lidar_robosense_registered')
         train_list = os.listdir(sorted(cfg_base_path))
         # TODO: need 'src'&'dst'&'transform'&'src img path'&'dst img path'
-        self.train_data_src = []
+        self.data_src = []
         self.id_list = []
         for file in train_list:
             if file.endswith('.json'):
@@ -124,7 +127,7 @@ class TumTrafDataset():
                 tmp = img_list[0].split('_')
                 id_num = f'{tmp[0]}_{tmp[1]}'
                 self.id_list.append(id_num)
-                self.train_data_src.append(
+                self.data_src.append(
                         {
                             id_num : {
                             'south1': os.path.join(self.south1_path, img_list[-1]),
@@ -155,7 +158,7 @@ class TumTrafDataset():
     def __getitem__(self, idx):
         start, end = self.start_end_list[idx]
         # id_list = self.id_list[start:end]
-        dict_list = self.train_data_src[start:end]
+        dict_list = self.data_src[start:end]
         item_dict = {
             'south1': [], 'south2': [], 'vehicle': [], 'transform': [], 'inf-intrinsic': []
         }
@@ -176,3 +179,9 @@ class TumTrafDataset():
 
         # TODO: downsample
 
+
+if __name__ == '__main__':
+    dataset = TumTrafDataset(root_path='../../../../../download/tumtraf_v2x_cooperative_perception_dataset', frame=16)
+    pdb.set_trace()
+    item = dataset[15]
+    print(item.keys())

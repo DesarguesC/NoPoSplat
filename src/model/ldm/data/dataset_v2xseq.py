@@ -115,3 +115,11 @@ class V2XSeqDataset():
         item_dict['vehicle'] = self.downsampler(item_dict['vehicle'])[None, :]
 
         return item_dict
+
+if __name__ == '__main__':
+    dataset = V2XSeqDataset(root_path='../../../../../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=16)
+    pdb.set_trace()
+    item = dataset[15]
+    print(item.keys())
+
+

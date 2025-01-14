@@ -27,6 +27,7 @@ class Options(NamedTuple):
     vae_ckpt: str = None
     adapter_ckpt_path: List[str] = [None]
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-inference.yaml'
+    frame: int = 16
     H: int = 224 # default
     W: int = 224
     C: int = 4
@@ -83,21 +84,6 @@ def get_base_argument_parser() -> argparse.ArgumentParser:
         default=DEFAULT_NEGATIVE_PROMPT,
         help='negative prompt',
     )
-
-    # parser.add_argument(
-    #     '--cond_path',
-    #     type=str,
-    #     default=None,
-    #     help='condition image path',
-    # )
-    #
-    # parser.add_argument(
-    #     '--cond_inp_type',
-    #     type=str,
-    #     default='image',
-    #     help='the type of the input condition image, take depth T2I as example, the input can be raw image, '
-    #     'which depth will be calculated, or the input can be a directly a depth map image',
-    # )
 
     parser.add_argument(
         '--sampler',
