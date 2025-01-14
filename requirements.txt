@@ -42,3 +42,6 @@ fvcore==0.1.5.post20221221
 imageio==2.33.1
 lm_eval==0.4.1
 omegaconf==2.3.0
+open3d
+visu3d==1.5.3
+etils==1.5.2
