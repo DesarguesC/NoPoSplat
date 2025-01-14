@@ -68,8 +68,8 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
         self.sd_opt = make_options(train_mode = (cfg.mode is not 'test'))
         self.sd_model, self.sampler, self.sd_cfg = get_sd_models(self.sd_opt, return_cfg=True)
-        self.adapter_dict = get_latent_adapter(self.sd_opt, train_mode=train_mode, cond_type=self.sd_opt.allow_cond, device=self.device)
-        # 'model': dict 'cond_weight': list
+        self.adapter_list = get_latent_adapter(self.sd_opt, train_mode=train_mode, cond_type=self.sd_opt.allow_cond, device=self.device)
+        # 'model': list 'cond_weight': list
 
 
         # TODO: params = list(xx.backbone.parameters()) + list(xx.adapter_dict['ray']) + list(xx.adapter_dict['feature'])
@@ -107,7 +107,6 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
         else:
             raise NotImplementedError('check parameters at configs, listed in \'param.txt\'')
-
     def set_gs_params_head(self, cfg, head_type, output_mode):
         if head_type == 'linear':
             self.gaussian_param_head = nn.Sequential(
@@ -117,7 +116,6 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
                     cfg.num_surfaces * self.patch_size ** 2 * self.raw_gs_dim,
                 ),
             )
-
             self.gaussian_param_head2 = deepcopy(self.gaussian_param_head)
         elif head_type == 'dpt':
             self.gaussian_param_head = head_factory(head_type, 'gs_params', self.backbone, has_conf=False, out_nchan=self.raw_gs_dim)  # for view1 3DGS
@@ -132,7 +130,6 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
             self.gaussian_param_head_dynamic = head_factory(head_type, output_mode, self.backbone, has_conf=False, static_required=False) # 返回dynamic head
         else:
             raise NotImplementedError(f"unexpected {head_type=}")
-
     def map_pdf_to_opacity(
         self,
         pdf: Float[Tensor, " *batch"],
@@ -170,12 +167,13 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
                 param-head:
                     self.gaussian_param_head_sole
         """
-        ray_maps = context['ray'] # [b f c h w]
-        video = context['video']
+        pdb.set_trace()
+
+        ray_maps = context['ray'] # 'pos': [b f h w 3], 'dir' [b f h w 3]
+        video = context['video'] # [b f 3 h w]
         device = video.device
         b, f, _, h, w = video.shape
 
-        # TODO: [AIR] 要有3个head，多一个diffusion的
         dec_feature, views = self.backbone(context, return_views=True) # PE & Proj
         """
             views = {
@@ -184,20 +182,24 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
                 'position': pos,            # [batch, frames, num_patcher, embed_dim]
                 'embeddings': embeddings    # [num_patches, frames, batch, embed_dim]
             }
-            dec_feature: [b, f, p-1, e] * 13
+            dec_feature: [N b f p e]
             p == (h/p_size) * (w/p_size) * 2 | 因为拼了一个intrinsic_embed
         """
-        # TODO: 确认fec_feature的形状
+
         video = views['video'] # [b f c h w] | c=3
         shape = views['shape'] # [b*f, 2] | 2: (H,W)
         allow_cond = list(self.sd_opt.allow_cond)
         cond_weight = list(self.sd_opt.cond_weight)
         input_list = [ray_maps, dec_feature]
         self.sd_opt.H, self.sd_opt.W = shape[0], shape[1]
-        pdb.set_trace()
+
         with torch.cuda.amp.autocast(enabled=False):
             # 原来noposplat的cross-attention思路是用第0帧查询后续所有帧
             ... # ldm
+            # 在adapter forward中做'n b f p e -> b f（p n) e'
+            feature_dec = self.adapter_list[0](ray_maps['pos'], dec_feature)
+            feature_ray = self.adapter_list[1](ray_maps['dir'], dec_feature) # 也可以直接把dir做encode之后拼到sd的backbone上
+
             adapter_feature = [
                 self.adapter_dict[allow_cond[i]](input_list[i]) for i in range(len(allow_cond))
             ] # List[list]

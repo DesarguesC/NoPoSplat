@@ -117,11 +117,11 @@ class V2XSeqDataset():
 
     def convert_item(self, item):
         return {
-            'video': item['video'],
+            'video': item['video'] / 255.,
             'intrinsic': item['intrinsic'],
-            'vehicle': item['vehicle'], # g.t.
+            'vehicle': item['vehicle'] / 255., # g.t.
             'ray': {
-                'pos': item['ray_pos'],
+                'pos': item['ray_pos'] / 255.,
                 'dir': item['ray_dir']
             }
         }

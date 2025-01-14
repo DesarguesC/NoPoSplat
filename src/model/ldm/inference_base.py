@@ -279,8 +279,8 @@ def get_cond_adapter(cond_type: ExtraCondition, device='cuda'):
 def get_latent_adapter(opt, train_mode: bool = True, cond_type: List[ExtraCondition] = [None], device = 'cuda'):
     # TODO: refer to app.py to check the usage when calling.
     adapter = {}
-    adapter['cond_weight'] = getattr(opt, 'cond_weight', [None])
-    adapter['model'] = {str(cond): get_cond_adapter(cond, device=device) for cond in cond_type}
+    adapter['cond_weight'] = getattr(opt, 'cond_weight', [None]) # list
+    adapter['model'] = [get_cond_adapter(cond, device=device) for cond in cond_type]
     if len(adapter['cond_weight']) != len(adapter['model']):
         adapter['cond_weight'] = [1. for i in range(len(adapter['model']))]
     ckpt_path_list = getattr(opt, 'adapter_ckpt_path', [None])

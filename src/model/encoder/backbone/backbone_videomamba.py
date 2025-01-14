@@ -788,8 +788,8 @@ class VideoMamba(nn.Module):
         decoded_feature = self._decoder(mamba_feature, pos)
         # list(shape[b, f, p*2, embed_dim]) -> p*2是因为拼了intrinsic
         # TODO: 是否要取每个回归的末尾？
-        decoded_feature = [u[:, :, :-1] for u in list(decoded_feature)]
-        # dec_feature_list = list(torch.cat(dec_list, dim=0).chunk(b))
+        # decoded_feature = [u[:, :, :-1] for u in list(decoded_feature)]
+        decoded_feature = torch.cat([u[None, :] for u in decoded_feature], dim=0) # -> [N b f 2p e]
 
         shape = rearrange(shape, '(b f) c -> b f c', b=b, f=f)
         video = rearrange(context['video'], '(b f) c h w -> b f c h w', b=b, f=f)

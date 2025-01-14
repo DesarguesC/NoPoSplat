@@ -114,7 +114,7 @@ def main(cfg_dict: DictConfig):
     torch.cuda.set_device(opt.local_rank)
 
     # TODO: load data
-    train_dataset = TumTrafDataset(root_path='../download/tumtraf_v2x_cooperative_perception_dataset', frame=opt.frame)
+    train_dataset = TumTrafDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame)
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -196,14 +196,14 @@ def main(cfg_dict: DictConfig):
             current_iter += 1
             with torch.no_grad():
                 c = model_sd.module.get_learned_conditioning(opt.prompt)
-                z = model_sd.module.encode_first_stage((data['im'] * 2 - 1.).to(device))
+                z = model_sd.module.encode_first_stage((data['video'] * 2 - 1.).to(device))
                 z = model_sd.module.get_first_stage_encoding(z)
 
             optimizer.zero_grad()
             model_sd.zero_grad()
             dec_feat, _ = model_video_mamba(data, return_views=True) # only 'video' used
             mamba_feat = model_ad_feature(dec_feat)
-            ray_feat = model_ad_ray(data['ray'])
+            ray_feat = model_ad_ray(data['ray']) # whether: * 2 - 1 ?
 
             features_adapter = opt.cond_weight[0] * mamba_feat + opt.cond_weight[1] * ray_feat
 
