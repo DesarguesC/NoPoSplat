@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import cv2
+import cv2, pdb
 import numpy as np
 import visu3d as v3d
 from einops import repeat, rearrange
@@ -24,29 +24,28 @@ def positional_encode(x, min_deg=0, max_deg=15):
     return np.concatenate([x, emb], axis=-1)
 
 def camera2ray(transform, intrinsic, resolution):
+    # pdb.set_trace()
     R, T = transform[0:3, 0:3], transform[0:3,-1]
     w2c = v3d.Transform(R=R, t=T)
     cam_spec = v3d.PinholeCamera(resolution=resolution, K=intrinsic)
     rays = v3d.Camera(spec=cam_spec, world_from_cam=w2c).rays()
-    ray_map = np.asarray(rays) # -> resolution = (H, W)
+    ray_pos, ray_dir = rays.pos, rays.dir # [H W 3]
     # TODO: for optimization
     # pos_emb_pos = positional_encode(rays.pos, min_deg=0, max_deg=15) # (H, W, 93)
-    return rearrange(repeat(ray_map[None,:], '1 ... -> c ...', c = 3), 'c h w -> h w c')
+    return (ray_pos, ray_dir)
 
-def load_v2x_intrinsics(path, return_res=False):
+def load_v2x_intrinsics(path):
     # return np.ndarray
     with open(path, 'r') as f:
         u = json.load(f)
-    resolution = (u['height'], u['width'])
     K = np.array(u['cam_K']).reshape((3,3))
-    if return_res:
-        return K, resolution
-    else:
-        return K
+    return K
 
 def load_v2x_transform(path):
     with open(path, 'r') as f:
         u = json.load(f)
+    if 'rotation' not in u.keys() or 'translation' not in u.keys():
+        u = u['transform']
     trans = np.zeros((4,4), dtype=np.float32)
     trans[0:3, 0:3] = np.array(u['rotation'])
     trans[0:3, -1] = np.array(u['translation']).squeeze()
