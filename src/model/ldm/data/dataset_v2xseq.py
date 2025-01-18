@@ -10,7 +10,10 @@ from torch.nn import functional as F
 from functools import partial
 
 # root_path = '../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)/'
-# TODO: prompt -> "inside the car"
+
+def ab64(u: int) -> int:
+    return 64 * int(u/64 + 0.5)
+
 
 class V2XSeqDataset():
 
@@ -37,7 +40,10 @@ class V2XSeqDataset():
         self.resolution = resolution
         H, W = resolution
         self.downsample = downsample
-        self.res = (H // downsample, W // downsample)
+        self.res = (ab64(H // downsample), ab64(W // downsample))
+        # TODO: set H = W ?
+        # pdb.set_trace()
+        self.res = (self.res[0], self.res[0])
 
         # downsample when return items
 
@@ -117,12 +123,13 @@ class V2XSeqDataset():
 
     def convert_item(self, item):
         return {
-            'video': item['video'] / 255.,
-            'intrinsic': item['intrinsic'],
-            'vehicle': item['vehicle'] / 255., # g.t.
+            'video': item['video'] / 255.,      # [f 3 h w]
+            'intrinsic': item['intrinsic'],     # [f 3 3]
+            'vehicle': item['vehicle'] / 255.,  # [f 3 h w]
+            # g.t.
             'ray': {
-                'pos': item['ray_pos'] / 255.,
-                'dir': item['ray_dir']
+                'pos': item['ray_pos'] / 255.,  # [f h w 3]
+                'dir': item['ray_dir']          # [f h w 3]
             }
         }
 
@@ -131,10 +138,10 @@ class V2XSeqDataset():
 
     def __getitem__(self, idx):
         item_dict = {}
-        item_dict['video'] = torch.cat([img2tensor(cv2.imread(u))[None,:] for u in self.infrastructure_list[idx]], dim=0) # [f 3 h w]
-        item_dict['video'] = self.downsampler(item_dict['video'])[None, :]
-        item_dict['vehicle'] = torch.cat([img2tensor(cv2.imread(u))[None, :] for u in self.vehicle_list[idx]], dim=0)  # [f 3 h w]
-        item_dict['vehicle'] = self.downsampler(item_dict['vehicle'])[None, :]
+        item_dict['video'] = torch.cat([img2tensor(cv2.imread(u))[None,:] for u in self.infrastructure_list[idx]], dim=0)
+        item_dict['video'] = self.downsampler(item_dict['video']) # [f 3 h w]
+        item_dict['vehicle'] = torch.cat([img2tensor(cv2.imread(u))[None, :] for u in self.vehicle_list[idx]], dim=0)
+        item_dict['vehicle'] = self.downsampler(item_dict['vehicle']) # [f 3 h w]
         intrinsic_list = [load_v2x_intrinsics(u) for u in self.inf_intrinsic_path_list[idx]]
         ray_map_list = [self.load_transform_i2v_matrix2camera(u) for u in self.transform_path_list[idx]]
 
@@ -143,10 +150,10 @@ class V2XSeqDataset():
             item_dict['ray_pos'].append(ray_map_list[j][0][None, :])
             item_dict['ray_dir'].append(ray_map_list[j][1][None, :])
 
-        item_dict['ray_pos'] = rearrange(torch.cat(item_dict['ray_pos'], dim=0), 'f h w c -> f c h w') # [f h w 3]
-        item_dict['ray_dir'] = rearrange(torch.cat(item_dict['ray_dir'], dim=0), 'f h w c -> f c h w') # [f h w 3]
+        item_dict['ray_pos'] = rearrange(torch.cat(item_dict['ray_pos'], dim=0), 'f h w c -> f c h w') # [f 3 h w]
+        item_dict['ray_dir'] = rearrange(torch.cat(item_dict['ray_dir'], dim=0), 'f h w c -> f c h w') # [f 3 h w]
         # TODO: read
-        item_dict['intrinsic'] = torch.cat([torch.tensor(u[None, :], dtype=torch.float32) for u in intrinsic_list])[None, :] # [f 3 3]
+        item_dict['intrinsic'] = torch.cat([torch.tensor(u[None, :], dtype=torch.float32) for u in intrinsic_list]) # [f 3 3]
 
         return self.convert_item(item_dict)
 

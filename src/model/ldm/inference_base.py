@@ -38,6 +38,7 @@ class Options(NamedTuple):
     allow_cond: List[ExtraCondition] = [ExtraCondition.ray, ExtraCondition.feature]
 
 class Train_Options(Options):
+    prompt: str = 'a driving scene inside the car with high quality, 4K, highly detailed'
     batch_size: int = 4
     epochs: int = 10000
     num_workers: int = 8 # cpu numbers * 2
@@ -46,8 +47,8 @@ class Train_Options(Options):
     resume_state_path: str
     name: str = "mamba-feature"
     print_fq: int = 100
-    H: int = 224
-    W: int = 224
+    H: int = 256
+    W: int = 256
     C: int = 4
     f: int = 8
     sample_steps: int = 50

@@ -183,26 +183,24 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
                 'embeddings': embeddings    # [num_patches, frames, batch, embed_dim]
             }
             dec_feature: [N b f p e]
-            p == (h/p_size) * (w/p_size) * 2 | 因为拼了一个intrinsic_embed
+            p = (h/p_size) * (w/p_size) * 2 | 因为拼了一个intrinsic_embed
         """
 
         video = views['video'] # [b f c h w] | c=3
         shape = views['shape'] # [b*f, 2] | 2: (H,W)
-        allow_cond = list(self.sd_opt.allow_cond)
+        # allow_cond = list(self.sd_opt.allow_cond)
         cond_weight = list(self.sd_opt.cond_weight)
-        input_list = [ray_maps, dec_feature]
+        # input_list = [ray_maps, dec_feature]
         self.sd_opt.H, self.sd_opt.W = shape[0], shape[1]
 
         with torch.cuda.amp.autocast(enabled=False):
             # 原来noposplat的cross-attention思路是用第0帧查询后续所有帧
             ... # ldm
-            # 在adapter forward中做'n b f p e -> b f（p n) e'
+            # 在adapter forward中做'n b f p e -> b f (p n) e'
             feature_dec = self.adapter_list[0](ray_maps['pos'], dec_feature)
             feature_ray = self.adapter_list[1](ray_maps['dir'], dec_feature) # 也可以直接把dir做encode之后拼到sd的backbone上
 
-            adapter_feature = [
-                self.adapter_dict[allow_cond[i]](input_list[i]) for i in range(len(allow_cond))
-            ] # List[list]
+            adapter_feature = [feature_dec, feature_ray] # List[list]
             L = len(adapter_feature[0])
             concat_feat = [
                 cond_weight[0] * adapter_feature[0][i] + cond_weight[1] * adapter_feature[1][i]
