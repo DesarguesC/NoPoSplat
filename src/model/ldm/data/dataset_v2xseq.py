@@ -32,7 +32,7 @@ class V2XSeqDataset():
         pos, dir = camera2ray(transform_i2v, veh_intrinsic, resolution=self.res)
         return (torch.tensor(pos, dtype=torch.float32), torch.tensor(dir, dtype=torch.float32))
 
-    def __init__(self, root_path, frame, resolution=(1080,1920), downsample=4):
+    def __init__(self, root_path, frame, resolution=(1080,1920), downsample=4, train_res=(256,256)):
         self.frame = frame
         self.root_path = root_path
         self.config_path = os.path.join(root_path, 'V2X-Seq-SPD', 'cooperative/data_info.json')
@@ -40,10 +40,11 @@ class V2XSeqDataset():
         self.resolution = resolution
         H, W = resolution
         self.downsample = downsample
-        self.res = (ab64(H // downsample), ab64(W // downsample))
+        # self.res = (ab64(H // downsample), ab64(W // downsample))
         # TODO: set H = W ?
         # pdb.set_trace()
-        self.res = (self.res[0], self.res[0])
+        # self.res = (self.res[0], self.res[0])
+        self.res = train_res
 
         # downsample when return items
 
@@ -52,7 +53,7 @@ class V2XSeqDataset():
         self.vehicle_config_path = os.path.join(root_path, 'V2X-Seq-SPD', 'vehicle-side/data_info.json')
         self.infrastructure_config_path = os.path.join(root_path, 'V2X-Seq-SPD', 'infrastructure-side/data_info.json')
 
-        H, W = self.resolution
+        H, W = train_res
         self.downsampler = partial(F.interpolate, size=(H, W), mode='bilinear')
         # img-id ~ calib path list
         with open(self.infrastructure_config_path, 'r') as f:
