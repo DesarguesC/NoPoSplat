@@ -32,7 +32,9 @@ basicsr
 ml_collections
 optax
 clu
-xformers==0.0.20
+xformers==0.0.23.post1
+# corresponding to torch==2.1.2+cu121
+# see https://blog.4c43.work/index.php/archives/87/
 apex
 av==11.0.0
 decord==0.6.0
