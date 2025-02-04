@@ -349,10 +349,15 @@ def train_inference(opt, c, model, sampler, adapter_features, cond_model=None, l
     c, uc = fix_cond_shapes(model, c, uc)
 
     if not hasattr(opt, 'H'):
-        opt.H = 512
-        opt.W = 512
+        opt.H = 256
+        opt.W = 256
+        # 最后resize为(1920, 1080)
         print('no------'*10)
     shape = [opt.C, opt.H // opt.factor, opt.W // opt.factor]    # fit the adapter feature
+
+    if (opt.bsize//2)*2 != opt.bsize:
+        pdb.set_trace()
+
     assert (opt.bsize//2)*2 == opt.bsize, 'bad batch size.'
    
     *_, ratios, samples = sampler.sample(

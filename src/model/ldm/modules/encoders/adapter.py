@@ -5,9 +5,8 @@ from einops import repeat, rearrange
 from collections import OrderedDict
 from torch.nn import init
 import pdb
+from torch.nn import functional as F
 from timm.models.layers import DropPath, to_2tuple
-
-
 def conv_nd(dims, *args, **kwargs):
     """
     Create a 1D, 2D, or 3D convolution module.
@@ -20,7 +19,6 @@ def conv_nd(dims, *args, **kwargs):
         return nn.Conv3d(*args, **kwargs)
     raise ValueError(f"unsupported dimensions: {dims}")
 
-
 def avg_pool_nd(dims, *args, **kwargs):
     """
     Create a 1D, 2D, or 3D average pooling module.
@@ -32,6 +30,7 @@ def avg_pool_nd(dims, *args, **kwargs):
     elif dims == 3:
         return nn.AvgPool3d(*args, **kwargs)
     raise ValueError(f"unsupported dimensions: {dims}")
+
 
 
 class Downsample(nn.Module):
@@ -59,9 +58,9 @@ class Downsample(nn.Module):
             self.op = avg_pool_nd(dims, kernel_size=stride, stride=stride)
 
     def forward(self, x):
+        if not x.shape[1] == self.channels: pdb.set_trace()
         assert x.shape[1] == self.channels
         return self.op(x)
-
 
 class ResnetBlock(nn.Module):
     def __init__(self, in_c, out_c, down, ksize=3, sk=False, use_conv=True):
@@ -98,14 +97,18 @@ class ResnetBlock(nn.Module):
         else:
             return h + x
 
-
 class Adapter(nn.Module):
-    def __init__(self, channels=[640, 1280, 1280], nums_rb=3, frame=20, patches=320, ksize=1, sk=True, use_conv=False,
-                 train_mode=True):
+    def __init__(self, channels=[320, 640, 1280, 1280], cin=200, nums_rb=3, frame=20, ksize=1, sk=True, use_conv=False,
+                 train_mode=True): # cin: frame * 10
         # patches: p * n = (H//p_size) * (W//p_size) * 2 * n // 8
         super(Adapter, self).__init__()
         self.frame = frame
         self.shuffle = nn.PixelShuffle(2)  # amend ?
+        self.conv_in = nn.Sequential(
+            nn.PixelUnshuffle(8),
+            nn.Conv2d(cin * 64, channels[0], 3, 1, 1), # -> ..., 64, 64
+            # nn.MaxPool2d(channels[0], channels[0], 0)
+        )
         self.unshuffle = nn.PixelUnshuffle(4)
         self.channels = channels
         self.nums_rb = nums_rb
@@ -119,22 +122,20 @@ class Adapter(nn.Module):
                     self.body.append(
                         ResnetBlock(channels[i], channels[i], down=False, ksize=ksize, sk=sk, use_conv=use_conv))
         self.body = nn.ModuleList(self.body)
-        self.conv_in = nn.Conv2d(patches, channels[0], 3, 1, 1)
         if train_mode:
             self.initialize_weights()
 
-    def forward(self, x):
+    def forward(self, x): # x -> ..., [32, 32] [16, 16], [8, 8], [4, 4]
+        *_, p, e = x.shape
         pdb.set_trace()
-        x = rearrange(x, 'n b f p e -> b f (p n) e')  # 或者n和f放一起？
-        x = self.unshuffle(x)
+        # TODO: 看patches还是embeddings
+        x = F.interpolate(rearrange(x, 'n b f p e -> b (f n) p e'), size=(p, p), mode='bilinear')  # 或者n和f放一起？
+        x = self.conv_in(x)
         # extract features
         features = []
-
-        x = self.conv_in(x)  # # torch.Size([2, 320, 1280, 72])
         for i in range(len(self.channels)):
             for j in range(self.nums_rb):
-                idx = i * self.nums_rb \
-                      + j
+                idx = i * self.nums_rb + j
                 x = self.body[idx](x)
             features.append(x)
 
@@ -163,12 +164,10 @@ class LayerNorm(nn.LayerNorm):
         ret = super().forward(x.type(torch.float32))
         return ret.type(orig_type)
 
-
 class QuickGELU(nn.Module):
 
     def forward(self, x: torch.Tensor):
         return x * torch.sigmoid(1.702 * x)
-
 
 class ResidualAttentionBlock(nn.Module):
 
@@ -191,7 +190,6 @@ class ResidualAttentionBlock(nn.Module):
         x = x + self.attention(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
-
 
 class StyleAdapter(nn.Module):
 
@@ -221,7 +219,6 @@ class StyleAdapter(nn.Module):
 
         return x
 
-
 class ResnetBlock_light(nn.Module):
     def __init__(self, in_c):
         super().__init__()
@@ -235,7 +232,6 @@ class ResnetBlock_light(nn.Module):
         h = self.block2(h)
 
         return h + x
-
 
 class extractor(nn.Module):
     def __init__(self, in_c, inter_c, out_c, nums_rb, down=False):
@@ -258,7 +254,6 @@ class extractor(nn.Module):
         x = self.out_conv(x)
 
         return x
-
 
 class PatchEmbed(nn.Module):
     """ Image to Patch Embedding
@@ -287,42 +282,38 @@ class PatchEmbed(nn.Module):
         x = self.proj(x)
         return x
 
-
 class Adapter_light(nn.Module):
-    def __init__(self, channels=[640, 1280, 1280], nums_rb=3, frame=20, patches=1200, img_size=256, patch_size=4,
+    def __init__(self, channels=[320, 640, 1280, 1280], nums_rb=3, frame=20, cin=200, img_size=256, patch_size=4,
                  embed_dim=576):
         super(Adapter_light, self).__init__()
         self.frame = frame
-        self.embedding_proj = PatchEmbed(img_size=img_size, patch_size=patch_size, embed_dim=embed_dim)
-        self.shuffle = nn.PixelShuffle(4)
+        # self.embedding_proj = PatchEmbed(img_size=img_size, patch_size=patch_size, embed_dim=embed_dim)
+        # self.shuffle = nn.PixelShuffle(4)
+        self.conv_in = nn.Sequential(
+            nn.PixelUnshuffle(4),
+            nn.Conv2d(cin * 16, channels[0], 3, 1, 1),
+            # rgb channel to be concatenated
+        )
         self.channels = channels
         self.nums_rb = nums_rb
         self.body = []
-        for i in range(len(channels)):
+        for i in range(len(channels)-1):
             if i == 0:
                 # TODO: Here, the detail of the extractor
                 self.body.append(
-                    extractor(in_c=patches, inter_c=channels[i] // 4, out_c=channels[i], nums_rb=nums_rb, down=False))
+                    extractor(in_c=channels[i], inter_c=channels[i] // 4, out_c=channels[i], nums_rb=nums_rb, down=False))
             else:
                 self.body.append(
-                    extractor(in_c=channels[i - 1], inter_c=channels[i] // 4, out_c=channels[i], nums_rb=nums_rb,
+                    extractor(in_c=channels[i], inter_c=channels[i+1] // 4, out_c=channels[i+1], nums_rb=nums_rb,
                               down=True))
         self.body = nn.ModuleList(self.body)
-        # self.conv_in = nn.Conv2d(patches, channels[0], 3, 1, 1)
 
     def forward(self, x):
-        x = rearrange(x, 'n b f c h w -> b c (n f) h w')
         pdb.set_trace()
-        x = self.embedding_proj(x)  # [b, c, f, h, w] -> [b, e, f, h1, w1]
-        pdb.set_trace()
-        x = rearrange(x, 'b e f h w -> b (e f) h w')  # 或者n和f放一起？
-        x = self.shuffle(x)
-        # unshuffle
-        # x = rearrange(self.unshuffle(x), 'b f h w -> b p h w')
-        # extract features
+        # x = rearrange(x, 'n b f c h w -> b (n f c) h w')
+        x = self.conv_in(x)
         features = []
 
-        # x = self.conv_in(x)
         for i in range(len(self.channels)):
             x = self.body[i](x)
             features.append(x)
@@ -337,8 +328,8 @@ def main1():
 
     adapter_dec = Adapter(
         frame=20,
-        patches=320,
-        channels=[320, 160, 80],
+        cin = 200, # frames * 10
+        channels=[320, 640, 1280, 1280],
         nums_rb=20,
         # ksize=1,
         # sk=True,
@@ -346,34 +337,38 @@ def main1():
     ).to('cuda')
     feature_ad = adapter_dec(dec_feat)
     pdb.set_trace()
-    # Adapter: torch.Size([2, 640, 1280, 72]), torch.Size([2, 1280, 640, 36]), torch.Size([2, 1280, 320, 18])
+   # (torch.Size([2, 320, 64, 64]), torch.Size([2, 640, 32, 32]), torch.Size([2, 1280, 16, 16]), torch.Size([2, 1280, 8, 8]))
     print(feature_ad[0].shape)
+    # DONE !
 
 
 def main2():
     # 256 × 256
-    pos = torch.ones((256, 256, 3)) * 3 / 255.
-    dir = torch.ones((256, 256, 3)) * 3 / 20.
-
+    pos = torch.ones((256, 256, 3)) / 255.
+    dir = torch.ones((256, 256, 3)) / 255.
+    pos = rearrange(pos[None,:], 'b h w c -> b c h w')
+    dir = rearrange(dir[None,:], 'b h w c -> b c h w')
     pos = pos.to('cuda')
     dir = dir.to('cuda')
     pdb.set_trace()
-
+    # [b 5 256 256] -> {unshuffle(2)*3} -> [b 320 32 32] -> [b 640 16 16]
     adapter_dec = Adapter_light(
         frame=20,
-        patches=320,  # n * f * 3
-        channels=[320, 160, 80],
+        cin=20 * 5 * 10,  # frames * 10 * 5 [camera ray map channel]
+        channels=[320, 640, 1280, 1280],
         nums_rb=20,
         # ksize=1,
         # sk=True,
         # use_conv=False
     ).to('cuda')
-    # [2 256, 256, 3]
-    input = torch.cat([pos, dir], dim=-1)  # [256 256 3]
-    input = input[None, :]
-    input = repeat(input, '1 ... -> u ...', u=10 * 2 * 20)  # n * b * f
-    input = rearrange(input, '(n b f) h w c -> n b f c h w', n=10, b=2).to('cuda')
-    pdb.set_trace()
+    input = torch.cat([
+        pos[:,:2], .5 * (pos[:,2] + dir[:,0])[None,:], dir[:,1:]
+    ], dim=1)
+    # [1 5 256 256]
+    frames = 20
+    input = repeat(input, '1 ... -> u ...', u=2 * 10 * frames)  # batch * 10 * f(=20)
+    input = rearrange(input, '(b n f) c h w -> b (n f c) h w', n=10, b=2).to('cuda')
+    # pdb.set_trace()
     # [n b f c H W]
     feature_ad = adapter_dec(input)
 
@@ -389,5 +384,5 @@ class Adapter_Decoder(nn.Module):
 
 
 if __name__ == '__main__':
-    main1()
+    main2()
 

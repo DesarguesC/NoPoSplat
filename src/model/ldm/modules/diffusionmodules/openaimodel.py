@@ -797,6 +797,15 @@ class UNetModel(nn.Module):
                 # inject features gained from adapters into convolution layer in u-net
                 adapter_idx += 1
             hs.append(h)
+        """
+        shape: 256 * 256
+        [
+            torch.Size([2, 320, 32, 32]), torch.Size([2, 320, 32, 32]), torch.Size([2, 320, 32, 32]), 
+            torch.Size([2, 320, 16, 16]), torch.Size([2, 640, 16, 16]), torch.Size([2, 640, 16, 16]), 
+            torch.Size([2, 640, 8, 8]), torch.Size([2, 1280, 8, 8]), torch.Size([2, 1280, 8, 8]), 
+            torch.Size([2, 1280, 4, 4]), torch.Size([2, 1280, 4, 4]), torch.Size([2, 1280, 4, 4])
+        ]
+        """
         if features_adapter is not None:
             assert len(features_adapter)==adapter_idx, 'Wrong features_adapter'
 
