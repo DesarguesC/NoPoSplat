@@ -297,15 +297,14 @@ class Adapter_light(nn.Module):
         self.channels = channels
         self.nums_rb = nums_rb
         self.body = []
-        for i in range(len(channels)-1):
+        for i in range(len(channels)):
             if i == 0:
                 # TODO: Here, the detail of the extractor
                 self.body.append(
                     extractor(in_c=channels[i], inter_c=channels[i] // 4, out_c=channels[i], nums_rb=nums_rb, down=False))
             else:
                 self.body.append(
-                    extractor(in_c=channels[i], inter_c=channels[i+1] // 4, out_c=channels[i+1], nums_rb=nums_rb,
-                              down=True))
+                    extractor(in_c=channels[i-1], inter_c=channels[i] // 4, out_c=channels[i], nums_rb=nums_rb, down=True))
         self.body = nn.ModuleList(self.body)
 
     def forward(self, x):
@@ -373,7 +372,7 @@ def main2():
     feature_ad = adapter_dec(input)
 
     pdb.set_trace()
-    # Adapter_light: torch.Size([2, 640, 256, 256]), torch.Size([2, 1280, 128, 128]), torch.Size([2, 1280, 64, 64])
+    # torch.Size([2, 320, 64, 64]), torch.Size([2, 640, 32, 32]), torch.Size([2, 1280, 16, 16]), torch.Size([2, 1280, 8, 8])
     print(feature_ad[0].shape)
 
 
