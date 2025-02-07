@@ -8,12 +8,6 @@ from basicsr.utils import (get_env_info, get_root_logger, get_time_str,
 from basicsr.utils.options import copy_opt_file, dict2str
 from omegaconf import OmegaConf
 
-from src.model.ldm.data import TumTrafDataset, V2XSeqDataset
-from basicsr.utils.dist_util import get_dist_info, init_dist, master_only
-from src.model.ldm.modules.encoders.adapter import Adapter
-from src.model.ldm.util import load_model_from_config
-from src.model.ldm import *
-
 import os
 from pathlib import Path
 
@@ -29,29 +23,31 @@ from lightning.pytorch.loggers.wandb import WandbLogger
 from lightning.pytorch.plugins.environments import SLURMEnvironment
 from omegaconf import DictConfig, OmegaConf
 
-from src.misc.weight_modify import checkpoint_filter_fn
-from src.model.distiller import get_distiller
-
 # Configure beartype and jaxtyping.
 with install_import_hook(
     ("src",),
     ("beartype", "beartype"),
 ):
+    from src.model.ldm.data import V2XSeqDataset # , TumTrafDataset
+    from basicsr.utils.dist_util import get_dist_info, init_dist, master_only
+    # from src.model.ldm.modules.encoders.adapter import Adapter
+    # from src.model.ldm.util import load_model_from_config
+    from src.model.ldm import *
+    # from src.misc.weight_modify import checkpoint_filter_fn
+    # from src.model.distiller import get_distiller
     from src.config import load_typed_root_config
-    from src.dataset.data_module import DataModule
+    # from src.dataset.data_module import DataModule
     from src.global_cfg import set_cfg
-    from src.loss import get_losses
-    from src.misc.LocalLogger import LocalLogger
-    from src.misc.step_tracker import StepTracker
-    from src.misc.wandb_tools import update_checkpoint_path
-    from src.model.decoder import get_decoder
+    # from src.loss import get_losses
+    # from src.misc.LocalLogger import LocalLogger
+    # from src.misc.step_tracker import StepTracker
+    # from src.misc.wandb_tools import update_checkpoint_path
+    # from src.model.decoder import get_decoder
     from src.model.encoder import get_encoder
-    from src.model.model_wrapper import ModelWrapper
+    # from src.model.model_wrapper import ModelWrapper
 
 def cyan(text: str) -> str:
     return f"{Fore.CYAN}{text}{Fore.RESET}"
-
-
 
 @master_only
 def mkdir_and_rename(path):
@@ -110,11 +106,10 @@ def main(cfg_dict: DictConfig):
     # distributed setting
     init_dist(opt.launcher)
     torch.backends.cudnn.benchmark = True
-    device = 'cuda'
     torch.cuda.set_device(opt.local_rank)
 
     # TODO: load data
-    train_dataset = TumTrafDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame)
+    train_dataset = V2XSeqDataset(root_path='../../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame)
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -203,7 +198,7 @@ def main(cfg_dict: DictConfig):
             model_sd.zero_grad()
             dec_feat, _ = model_video_mamba(data, return_views=True) # only 'video' used
             mamba_feat = model_ad_mamba_feat(dec_feat)
-            ray_feat = model_ad_ray(data['ray'])
+            ray_feat = model_ad_ray(data['ray']) # TODO: * 2 - 1 ???
 
             features_adapter = opt.cond_weight[0] * mamba_feat + opt.cond_weight[1] * ray_feat
 

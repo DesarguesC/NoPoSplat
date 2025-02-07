@@ -5,7 +5,7 @@ from tqdm import tqdm
 from basicsr.utils import img2tensor, tensor2img
 import numpy as np
 from einops import repeat, rearrange
-from utils import positional_encode, camera2ray, load_v2x_intrinsics, load_v2x_transform
+from .utils import positional_encode, camera2ray, load_v2x_intrinsics, load_v2x_transform
 from torch.nn import functional as F
 from functools import partial
 

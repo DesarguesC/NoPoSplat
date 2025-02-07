@@ -2,7 +2,7 @@ import argparse
 import torch, pdb
 from omegaconf import OmegaConf
 from typing import NamedTuple
-from torch import partial
+# from torch.nn import partial
 
 from typing import List
 from .models.diffusion.ddim import DDIMSampler

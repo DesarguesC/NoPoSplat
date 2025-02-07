@@ -10,7 +10,7 @@ from torch.nn import functional as F
 from typing import Optional
 from random import randint
 import numpy as np
-from utils import positional_encode, camera2ray
+from .utils import positional_encode, camera2ray
 from tqdm import tqdm
 
 
