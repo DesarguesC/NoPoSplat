@@ -141,7 +141,7 @@ def main(cfg_dict: DictConfig):
         device_ids=[opt.local_rank],
         output_device=opt.local_rank
     )
-    model_ad_feature = torch.nn.parallel.DistributedDataParallel(
+    model_ad_mamba_feat = torch.nn.parallel.DistributedDataParallel(
         encoder.adapter_dict['feature'],
         device_ids=[opt.local_rank],
         output_device=opt.local_rank
@@ -153,7 +153,7 @@ def main(cfg_dict: DictConfig):
     )
 
     # optimizer
-    params = list(model_video_mamba.parameters()) + list(model_ad_ray.parameters()) + list(model_ad_feature.parameters())
+    params = list(model_video_mamba.parameters()) + list(model_ad_ray.parameters()) + list(model_ad_mamba_feat.parameters())
     optimizer = torch.optim.AdamW(params, lr=sd_config['training']['lr'])
 
     experiments_root = osp.join('experiments', opt.name)
@@ -202,8 +202,8 @@ def main(cfg_dict: DictConfig):
             optimizer.zero_grad()
             model_sd.zero_grad()
             dec_feat, _ = model_video_mamba(data, return_views=True) # only 'video' used
-            mamba_feat = model_ad_feature(dec_feat)
-            ray_feat = model_ad_ray(data['ray']) # whether: * 2 - 1 ?
+            mamba_feat = model_ad_mamba_feat(dec_feat)
+            ray_feat = model_ad_ray(data['ray'])
 
             features_adapter = opt.cond_weight[0] * mamba_feat + opt.cond_weight[1] * ray_feat
 
@@ -222,7 +222,7 @@ def main(cfg_dict: DictConfig):
                 save_dict = {}
                 state_dict_list = [
                     model_video_mamba.state_dict(),
-                    model_ad_feature.state_dict(),
+                    model_ad_mamba_feat.state_dict(),
                     model_ad_ray.state_dict()
                 ]
                 model_name = ['video_mamba', 'feature', 'ray']

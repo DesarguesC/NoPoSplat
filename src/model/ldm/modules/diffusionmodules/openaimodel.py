@@ -1,5 +1,5 @@
 from abc import abstractmethod
-import math
+import math, pdb
 import torch
 
 import numpy as np
@@ -792,6 +792,7 @@ class UNetModel(nn.Module):
             h = module(h, emb, context)
             # print('after: h.shape = ', h.shape)
             if ((id+1)%3 == 0) and features_adapter is not None:
+                pdb.set_trace()
                 assert h.shape == features_adapter[adapter_idx].shape, 'h.shape={0}, features_adapter.shape={1}'.format(h.shape, features_adapter[adapter_idx].shape)
                 h = h + features_adapter[adapter_idx]
                 # inject features gained from adapters into convolution layer in u-net

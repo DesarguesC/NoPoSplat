@@ -28,25 +28,25 @@ class Options(NamedTuple):
     adapter_ckpt_path: List[str] = [None]
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-inference.yaml'
     frame: int = 16
-    H: int = 224 # default
-    W: int = 224
+    H: int = 256 # default
+    W: int = 256
     C: int = 4
     f: int = 8
     scale: int = 7.5
     seed: int = 42
-    cond_weight: List[float] = [1., 1.]
+    cond_weight: List[float] = [1., 1.] # TODO: as dynamic params in training procedure ?
     allow_cond: List[ExtraCondition] = [ExtraCondition.ray, ExtraCondition.feature]
 
 class Train_Options(Options):
     prompt: str = 'a driving scene inside the car with high quality, 4K, highly detailed'
-    batch_size: int = 4
-    epochs: int = 10000
-    num_workers: int = 8 # cpu numbers * 2
+    batch_size: int = 8
+    epochs: int = 5 # TODO: debug
+    num_workers: int = 8 # cpu cores * 2
     auto_resume: bool = True
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-train.yaml'
     resume_state_path: str
     name: str = "mamba-feature"
-    print_fq: int = 100
+    print_fq: int = 1 # TODO: debug
     H: int = 256
     W: int = 256
     C: int = 4
@@ -247,33 +247,22 @@ def get_t2i_adapter_models(opt):
     return model, sampler
 
 
-def get_cond_adapter(cond_type: ExtraCondition, device='cuda'):
+def get_cond_adapter(cond_type: ExtraCondition, frame = 20, device='cuda'):
     # TODO: directly return adapter models
-    # adapter['model-a'] = StyleAdapter(
-    #                         width=1024,
-    #                         context_dim=768,
-    #                         num_head=8,
-    #                         n_layes=3,
-    #                         num_token=8
-    #                     ).to(opt.device)
-    #
-    # adapter['model-b'] = Adapter_light(
-    #                         cin=64 * get_cond_ch(cond_type),
-    #                         channels=[320, 640, 1280, 1280],
-    #                         nums_rb=4
-    #                     ).to(opt.device)
-    # adapter['model-c'] = Adapter(
-    #                         cin=64 * get_cond_ch(cond_type),
-    #                         channels=[320, 640, 1280, 1280][:4],
-    #                         nums_rb=2,
-    #                         ksize=1,
-    #                         sk=True,
-    #                         use_conv=False
-    #                     ).to(opt.device)
     if cond_type == ExtraCondition.ray:
-        return ... # .to(device)
+        return Adapter_light(
+            frame = frame,
+            cin = frame * 5 * 10,  # frames * 10 * 5 [camera ray map channel]
+            channels = [320, 640, 1280, 1280],
+            nums_rb = 20,
+        ).to(device)
     elif cond_type == ExtraCondition.feature:
-        return ... # .to(device)
+        return Adapter(
+            frame = frame,
+            cin = frame * 10,
+            channels=[320, 640, 1280, 1280],
+            nums_rb=20,
+        ).to(device)
     else:
         raise NotImplementedError('Unrecognized Type')
 
@@ -281,7 +270,7 @@ def get_latent_adapter(opt, train_mode: bool = True, cond_type: List[ExtraCondit
     # TODO: refer to app.py to check the usage when calling.
     adapter = {}
     adapter['cond_weight'] = getattr(opt, 'cond_weight', [None]) # list
-    adapter['model'] = [get_cond_adapter(cond, device=device) for cond in cond_type]
+    adapter['model'] = [get_cond_adapter(cond, frame=opt.frame, device=device) for cond in cond_type]
     if len(adapter['cond_weight']) != len(adapter['model']):
         adapter['cond_weight'] = [1. for i in range(len(adapter['model']))]
     ckpt_path_list = getattr(opt, 'adapter_ckpt_path', [None])
@@ -305,8 +294,8 @@ def diffusion_inference(opt, model, sampler, adapter_features, batch_size=1, app
     c, uc = fix_cond_shapes(model, c, uc) # batch size of c ?
 
     if not hasattr(opt, 'H'):
-        opt.H = 512
-        opt.W = 512
+        opt.H = 256
+        opt.W = 256
     shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
 
     samples_latents, _ = sampler.sample(

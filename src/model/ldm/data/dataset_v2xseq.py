@@ -123,15 +123,17 @@ class V2XSeqDataset():
                 self.transform_path_list.append([u[:-1] for u in calibration[k][i:i+frame]])
 
     def convert_item(self, item):
+        pdb.set_trace()
+        rays = torch.cat([
+                item['ray_pos'][:, :2], .5 * (item['ray_pos'][:, 2] + item['ray_dir'][:, 0])[None, :], item['ray_dir'][:, 1:]
+            ], dim=1) # [f 5 h w]
+        rays = repeat(rays[None, :], '1 ... -> n ...', n = 10) # mamba windows length
         return {
             'video': item['video'] / 255.,      # [f 3 h w]
             'intrinsic': item['intrinsic'],     # [f 3 3]
             'vehicle': item['vehicle'] / 255.,  # [f 3 h w]
             # g.t.
-            'ray': {
-                'pos': item['ray_pos'] / 255.,  # [f h w 3]
-                'dir': item['ray_dir']          # [f h w 3]
-            }
+            'ray': rearrange(rays, 'n f c h w -> (n f c) h w')
         }
 
     def __len__(self):
@@ -151,7 +153,7 @@ class V2XSeqDataset():
             item_dict['ray_pos'].append(ray_map_list[j][0][None, :])
             item_dict['ray_dir'].append(ray_map_list[j][1][None, :])
 
-        item_dict['ray_pos'] = rearrange(torch.cat(item_dict['ray_pos'], dim=0), 'f h w c -> f c h w') # [f 3 h w]
+        item_dict['ray_pos'] = rearrange(torch.cat(item_dict['ray_pos'], dim=0) / 255., 'f h w c -> f c h w') / 255. # [f 3 h w]
         item_dict['ray_dir'] = rearrange(torch.cat(item_dict['ray_dir'], dim=0), 'f h w c -> f c h w') # [f 3 h w]
         # TODO: read
         item_dict['intrinsic'] = torch.cat([torch.tensor(u[None, :], dtype=torch.float32) for u in intrinsic_list]) # [f 3 3]
