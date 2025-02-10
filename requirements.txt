@@ -36,6 +36,7 @@ xformers==0.0.23.post1
 # corresponding to torch==2.1.2+cu121
 # see https://blog.4c43.work/index.php/archives/87/
 apex
+moviepy==1.0.3
 av==11.0.0
 decord==0.6.0
 deepspeed==0.13.1
