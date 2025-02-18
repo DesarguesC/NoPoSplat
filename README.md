@@ -146,6 +146,12 @@ python -m src.eval_pose +experiment=scannet_pose +evaluation=eval_pose checkpoin
 ```
 Note that here we show the evaluation using the mixed model trained on RealEstate10K and DL3DV. You can replace the checkpoint path with other trained models.
 
+#### Video Training
+```bash
+python -m src.train_video # all params are set as default, or: 
+cd src && python train_video.py
+```
+
 ## Acknowledgements
 This project is developed with several fantastic repos: [pixelSplat](https://github.com/dcharatan/pixelsplat), [DUSt3R](https://github.com/naver/dust3r), and [CroCo](https://github.com/naver/croco). We thank the original authors for their excellent work.
 We thank the kindly help of [David Charatan](https://davidcharatan.com/#/) for providing the evaluation code and the pretrained models for some of the previous methods.
