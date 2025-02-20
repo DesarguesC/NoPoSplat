@@ -1,14 +1,10 @@
 
-import logging
-import os
+import logging, yaml, os
 import os.path as osp
-import torch
 from basicsr.utils import (get_env_info, get_root_logger, get_time_str,
                            scandir)
 from basicsr.utils.options import copy_opt_file, dict2str
-from omegaconf import OmegaConf
 
-import os
 from pathlib import Path
 
 import hydra
@@ -84,24 +80,61 @@ def load_resume_state(opt):
         resume_state = torch.load(resume_state_path, map_location=lambda storage, loc: storage.cuda(device_id))
     return resume_state
 
-@hydra.main(
-    version_base=None,
-    config_path="../config",
-    config_name="main",
-)
-def main(cfg_dict: DictConfig):
+def convert_to_dictconfig(obj):
+    # 如果是字典类型，将其中的每个项都转换为DictConfig
+    if isinstance(obj, dict):
+        return OmegaConf.create({key: convert_to_dictconfig(value) for key, value in obj.items()})
+    # 如果是列表类型，递归地处理列表中的每个元素
+    elif isinstance(obj, list):
+        return [convert_to_dictconfig(item) for item in obj]
+    # 如果是其他类型，直接返回
+    return obj
+
+def load_yaml_files_recursively(folder_path):
+    config = OmegaConf.create()  # 创建一个空的DictConfig对象
+    for root, dirs, files in os.walk(folder_path):
+        for file in files:
+            if file.endswith('.yaml') or file.endswith('.yml'):  # 检查文件扩展名
+                file_path = os.path.join(root, file)
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        # 解析yaml文件并转为DictConfig
+                        file_config = OmegaConf.create(yaml.safe_load(f))
+                        config.merge_with(file_config)  # 合并到config中
+                except (IOError, yaml.YAMLError) as e:
+                    print(f"Error loading {file_path}: {e}")
+                    continue  # 如果发生错误，跳过该文件
+
+    # 将config中的所有子对象递归转换为DictConfig
+    config = convert_to_dictconfig(config)
+    return config
+
+# @hydra.main(
+#     version_base=None,
+#     config_path="../config",
+#     config_name="main",
+# )
+
+def main(cfg_folder: str = './config'):
     opt = make_options(train_mode = True)
-    cfg = load_typed_root_config(cfg_dict)
-    set_cfg(cfg_dict)
+    pdb.set_trace()
+    config = load_yaml_files_recursively(cfg_folder)
+    def rec(dicts):
+        # if not isinstance(dicts, dict): return dicts
+        dicts = convert_to_dictconfig(dicts)
+        for (k,v) in dicts.items():
+            dicts[k] = rec(v)
+        return dicts
+
+    cfg = rec(config)
+
+    # cfg = OmegaConf.to_yaml(config)
+    pdb.set_trace()
+    # cfg = load_typed_root_config(cfg_dict)
+    # set_cfg(cfg_dict)
     cfg.mode = 'val' # PointOdyssey/val
     pdb.set_trace()
-    # Set up the output directory.
-    output_dir = Path(
-        hydra.core.hydra_config.HydraConfig.get()["runtime"]["output_dir"]
-    )
-    print(cyan(f"Saving outputs to {output_dir}."))
-    # config = OmegaConf.load(f"{opt.config}")
-    torch.manual_seed(cfg_dict.seed)
+    torch.manual_seed(cfg.seed)
 
     # distributed setting
     init_dist(opt.launcher)
@@ -109,7 +142,7 @@ def main(cfg_dict: DictConfig):
     torch.cuda.set_device(opt.local_rank)
 
     # TODO: load data
-    train_dataset = V2XSeqDataset(root_path='../../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame)
+    train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame)
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -121,7 +154,9 @@ def main(cfg_dict: DictConfig):
     )
 
     # Load Model from encoder_videosplat.py
-    encoder, encoder_visualizer = get_encoder(cfg.model.encoder)
+    # encoder, _ = get_encoder(cfg.model.encoder)
+    from .model.encoder.encoder_videosplat import EncoderVideoSplat
+    encoder = EncoderVideoSplat(config)
     sd_config = encoder.cfg
     # encoder: encoder_videosplat.py - class EncoderVideoSplat
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
