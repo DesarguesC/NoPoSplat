@@ -98,7 +98,6 @@ def load_yaml_files_recursively(folder_path):
 
 def main(cfg_folder: str = './config'):
     opt = make_options(train_mode = True)
-    pdb.set_trace()
     cfg = load_yaml_files_recursively(cfg_folder)
     # cfg = load_typed_root_config(cfg)
     cfg.mode = 'val' # useless
@@ -112,6 +111,8 @@ def main(cfg_folder: str = './config'):
     torch.cuda.set_device(opt.local_rank)
 
     # TODO: load data
+    pdb.set_trace()
+    opt.frame = cfg.model.encoder.num_frames
     train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame)
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(

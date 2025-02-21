@@ -1,5 +1,5 @@
-defaults:
-  - backbone: videomamba
+#defaults:
+#  - backbone: videomamba
 
 name: videosplat
 

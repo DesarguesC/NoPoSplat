@@ -57,6 +57,16 @@ class BackboneCrocoCfg:
     intrinsics_embed_degree: int = 0
     intrinsics_embed_type: Literal["pixelwise", "linear", "token"] = 'token'  # linear or dpt
 
+@dataclass
+class BackboneMambaCfg:
+    name: Literal["videomamba"]
+    model: Literal["ViTLarge_BaseDecoder", "ViTBase_SmallDecoder", "ViTBase_BaseDecoder"]  # keep interface for the last two models, but they are not supported
+    patch_embed_cls: str = 'PatchEmbedDust3R'  # PatchEmbedDust3R or ManyAR_PatchEmbed
+    asymmetry_decoder: bool = True
+    intrinsics_embed_loc: Literal["encoder", "decoder", "none"] = 'none'
+    intrinsics_embed_degree: int = 0
+    intrinsics_embed_type: Literal["pixelwise", "linear", "token"] = 'token'  # linear or dpt
+
 
 class AsymmetricCroCo(CroCoNet):
     """ Two siamese encoders, followed by two decoders.
