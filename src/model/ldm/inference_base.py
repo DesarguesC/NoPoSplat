@@ -58,7 +58,7 @@ class Train_Options(Options):
     launcher: str = 'pytorch'
 
 def make_options(train_mode = False):
-    return Train_Options if train_mode else Options()
+    return Train_Options() if train_mode else Options()
 
 
 def get_base_argument_parser() -> argparse.ArgumentParser:

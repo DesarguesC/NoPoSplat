@@ -78,8 +78,8 @@ class V2XSeqDataset():
             data_info = json.load(file)
         frames = [(u['vehicle_frame'], u['infrastructure_frame'], u['vehicle_sequence'], u['infrastructure_sequence']) for u in data_info]
 
-        pdb.set_trace()
-        for f in tqdm(frames):
+        # pdb.set_trace()
+        for f in tqdm(frames, desc="Reconstructing V2X-Seq..."):
             assert f[2] == f[3], f'unequal sequence number! veh_frame = {f[0]}, inf_veh = {f[1]}'
 
             veh_path = veh_search_dict[f[0]]

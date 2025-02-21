@@ -49,7 +49,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
             1: 只有一种head，需要加上时间编码接口
             2: 有两种head，静态head无需时间编码，动态head需要时间编码接口（与1用的相同）
         """
-
+        pdb.set_trace()
         self.backbone = get_backbone(cfg.backbone, 3) # VideoMamba
         self.train_mode = train_mode
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'

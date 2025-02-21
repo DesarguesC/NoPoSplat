@@ -1,4 +1,4 @@
-name: videosplat
+name: videomamba
 
 model: ViTLarge_BaseDecoder
 patch_embed_cls: PatchEmbedDust3R

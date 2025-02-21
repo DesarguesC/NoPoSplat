@@ -12,34 +12,20 @@ import torch
 import wandb, pdb
 import signal
 from colorama import Fore
-from jaxtyping import install_import_hook
-from lightning.pytorch import Trainer
-from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
-from lightning.pytorch.loggers.wandb import WandbLogger
-from lightning.pytorch.plugins.environments import SLURMEnvironment
+# from jaxtyping import install_import_hook
 from omegaconf import DictConfig, OmegaConf
 
 # Configure beartype and jaxtyping.
-with install_import_hook(
-    ("src",),
-    ("beartype", "beartype"),
-):
-    from src.model.ldm.data import V2XSeqDataset # , TumTrafDataset
-    from basicsr.utils.dist_util import get_dist_info, init_dist, master_only
-    # from src.model.ldm.modules.encoders.adapter import Adapter
-    # from src.model.ldm.util import load_model_from_config
-    from src.model.ldm import *
-    # from src.misc.weight_modify import checkpoint_filter_fn
-    # from src.model.distiller import get_distiller
-    from src.config import load_typed_root_config
-    # from src.dataset.data_module import DataModule
-    from src.global_cfg import set_cfg
-    # from src.loss import get_losses
-    # from src.misc.LocalLogger import LocalLogger
-    # from src.misc.step_tracker import StepTracker
-    # from src.misc.wandb_tools import update_checkpoint_path
-    # from src.model.decoder import get_decoder
-    from .model.encoder import get_encoder
+# with install_import_hook(
+#     ("src",),
+#     ("beartype", "beartype"),
+# ):
+
+from src.model.ldm.data import V2XSeqDataset # , TumTrafDataset
+from basicsr.utils.dist_util import get_dist_info, init_dist, master_only
+from src.config import load_typed_root_config
+from src.model.ldm import *
+from src.model.encoder import get_encoder
     # from src.model.model_wrapper import ModelWrapper
 
 def cyan(text: str) -> str:
@@ -109,18 +95,15 @@ def load_yaml_files_recursively(folder_path):
     config = convert_to_dictconfig(config)
     return config
 
-# @hydra.main(
-#     version_base=None,
-#     config_path="../config",
-#     config_name="main",
-# )
 
 def main(cfg_folder: str = './config'):
     opt = make_options(train_mode = True)
     pdb.set_trace()
     cfg = load_yaml_files_recursively(cfg_folder)
+    # cfg = load_typed_root_config(cfg)
     cfg.mode = 'val' # useless
-    pdb.set_trace()
+    cfg.model.encoder.name = 'videosplat' # ?
+
     torch.manual_seed(cfg.seed)
 
     # distributed setting
@@ -133,7 +116,7 @@ def main(cfg_folder: str = './config'):
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
-        batch_size=opt.bsize,
+        batch_size=opt.batch_size,
         shuffle=(train_sampler is None),
         num_workers=opt.num_workers,
         pin_memory=True,
