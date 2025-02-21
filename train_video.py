@@ -39,7 +39,7 @@ with install_import_hook(
     # from src.misc.step_tracker import StepTracker
     # from src.misc.wandb_tools import update_checkpoint_path
     # from src.model.decoder import get_decoder
-    from src.model.encoder import get_encoder
+    from .model.encoder import get_encoder
     # from src.model.model_wrapper import ModelWrapper
 
 def cyan(text: str) -> str:
@@ -118,21 +118,8 @@ def load_yaml_files_recursively(folder_path):
 def main(cfg_folder: str = './config'):
     opt = make_options(train_mode = True)
     pdb.set_trace()
-    config = load_yaml_files_recursively(cfg_folder)
-    def rec(dicts):
-        # if not isinstance(dicts, dict): return dicts
-        dicts = convert_to_dictconfig(dicts)
-        for (k,v) in dicts.items():
-            dicts[k] = rec(v)
-        return dicts
-
-    cfg = rec(config)
-
-    # cfg = OmegaConf.to_yaml(config)
-    pdb.set_trace()
-    # cfg = load_typed_root_config(cfg_dict)
-    # set_cfg(cfg_dict)
-    cfg.mode = 'val' # PointOdyssey/val
+    cfg = load_yaml_files_recursively(cfg_folder)
+    cfg.mode = 'val' # useless
     pdb.set_trace()
     torch.manual_seed(cfg.seed)
 
@@ -152,11 +139,11 @@ def main(cfg_folder: str = './config'):
         pin_memory=True,
         sampler=train_sampler
     )
-
+    pdb.set_trace()
     # Load Model from encoder_videosplat.py
-    # encoder, _ = get_encoder(cfg.model.encoder)
-    from .model.encoder.encoder_videosplat import EncoderVideoSplat
-    encoder = EncoderVideoSplat(config)
+    encoder, _ = get_encoder(cfg.model.encoder)
+    # from .model.encoder.encoder_videosplat import EncoderVideoSplat
+    # encoder = EncoderVideoSplat(config)
     sd_config = encoder.cfg
     # encoder: encoder_videosplat.py - class EncoderVideoSplat
     device = 'cuda' if torch.cuda.is_available() else 'cpu'

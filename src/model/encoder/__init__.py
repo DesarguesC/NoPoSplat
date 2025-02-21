@@ -1,4 +1,5 @@
 from typing import Optional
+import pdb
 
 from .encoder import Encoder
 from .encoder_noposplat import EncoderNoPoSplatCfg, EncoderNoPoSplat
@@ -21,7 +22,7 @@ EncoderCfg = EncoderNoPoSplatCfg
 
 
 def get_encoder(cfg: EncoderCfg) -> tuple[Encoder, Optional[EncoderVisualizer]]:
-
+    pdb.set_trace()
     encoder, visualizer = ENCODERS[cfg.name]
     encoder = encoder(cfg)
     if visualizer is not None:
