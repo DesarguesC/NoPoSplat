@@ -13,7 +13,7 @@ from .backbone_resnet import BackboneResnet, BackboneResnetCfg
 
 @dataclass
 class BackboneDinoCfg:
-    name: Literal["dino"]
+    name: str
     model: Literal["dino_vits16", "dino_vits8", "dino_vitb16", "dino_vitb8"]
     d_out: int
 

@@ -76,17 +76,33 @@ def convert_to_dictconfig(obj):
     # 如果是其他类型，直接返回
     return obj
 
+def recursive_merge(config, new_config):
+    """
+    Recursively merge new_config into config. If fields are the same,
+    new_config fields will be merged into existing ones as subfields.
+    """
+    for key, value in new_config.items():
+        if key in config and isinstance(config[key], dict) and isinstance(value, dict):
+            # If both values are dictionaries, recursively merge them
+            recursive_merge(config[key], value)
+        else:
+            # Otherwise, simply set the value
+            config[key] = value
+
 def load_yaml_files_recursively(folder_path):
     config = OmegaConf.create()  # 创建一个空的DictConfig对象
+    # pdb.set_trace()
     for root, dirs, files in os.walk(folder_path):
         for file in files:
             if file.endswith('.yaml') or file.endswith('.yml'):  # 检查文件扩展名
                 file_path = os.path.join(root, file)
+                # pdb.set_trace()
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         # 解析yaml文件并转为DictConfig
                         file_config = OmegaConf.create(yaml.safe_load(f))
                         config.merge_with(file_config)  # 合并到config中
+                        # recursive_merge(config, file_config)
                 except (IOError, yaml.YAMLError) as e:
                     print(f"Error loading {file_path}: {e}")
                     continue  # 如果发生错误，跳过该文件
@@ -96,14 +112,49 @@ def load_yaml_files_recursively(folder_path):
     return config
 
 
+from pathlib import Path
+
+
+def read_config_folder(config_path: Path) -> OmegaConf:
+    """
+    递归读取一个config文件夹，返回一个DictConfig类型的变量。
+    :param config_path: 配置文件夹路径
+    :return: OmegaConf对象
+    """
+    # 判断路径是否是文件夹
+    if config_path.is_dir():
+        # 创建一个空的DictConfig对象
+        config_dict = {}
+
+        # 遍历文件夹中的每个项目（文件夹或文件）
+        for item in config_path.iterdir():
+            # 如果是子文件夹，递归调用该函数
+            if item.is_dir():
+                config_dict[item.name] = read_config_folder(item)
+            # 如果是YAML文件，加载其内容
+            elif item.suffix == '.yaml':
+                with open(item, 'r', encoding='utf-8') as f:
+                    # 加载yaml文件内容到字典
+                    yaml_content = yaml.safe_load(f)
+                    # 使用文件名（不包括扩展名）作为键，值为yaml内容
+                    config_dict[item.stem] = yaml_content
+
+        # 使用OmegaConf包装字典，返回一个DictConfig对象
+        return OmegaConf.create(config_dict)
+    else:
+        raise ValueError(f"{config_path} 不是一个有效的文件夹路径")
+
+
 def main(cfg_folder: str = './config'):
     opt = make_options(train_mode = True)
+    pdb.set_trace()
     cfg = load_yaml_files_recursively(cfg_folder)
     # cfg = load_typed_root_config(cfg)
     cfg.mode = 'val' # useless
     cfg.model.encoder.name = 'videosplat' # ?
 
     torch.manual_seed(cfg.seed)
+    opt = opt._replace(seed=cfg.seed)
 
     # distributed setting
     init_dist(opt.launcher)
@@ -112,7 +163,7 @@ def main(cfg_folder: str = './config'):
 
     # TODO: load data
     pdb.set_trace()
-    opt.frame = cfg.model.encoder.num_frames
+    # opt.frame = cfg.model.encoder.num_frames
     train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame)
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(

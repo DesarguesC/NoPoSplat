@@ -16,7 +16,7 @@ from .backbone import Backbone
 
 @dataclass
 class BackboneResnetCfg:
-    name: Literal["resnet"]
+    name: str
     model: Literal[
         "resnet18", "resnet34", "resnet50", "resnet101", "resnet152", "dino_resnet50"
     ]

@@ -57,6 +57,16 @@ class Train_Options(Options):
     local_rank: int = 0
     launcher: str = 'pytorch'
 
+    dec_embed_dim: int = 768
+    dec_depth: int = 12
+    dec_num_heads: int = 16
+    mlp_ratio: int = 4
+    norm_im2_in_dec: bool = True
+    pos_embed: str = 'cosine'
+    decoder_weights_path: str = ''
+    device: str = 'cuda'
+
+
 def make_options(train_mode = False):
     return Train_Options() if train_mode else Options()
 
