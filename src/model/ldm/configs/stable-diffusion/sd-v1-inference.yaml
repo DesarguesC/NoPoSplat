@@ -1,6 +1,6 @@
 model:
   base_learning_rate: 1.0e-04
-  target: ldm.models.diffusion.ddpm.LatentDiffusion
+  target: src.model.ldm.models.diffusion.ddpm.LatentDiffusion
   params:
     linear_start: 0.00085
     linear_end: 0.0120
@@ -18,7 +18,7 @@ model:
     use_ema: False
 
     unet_config:
-      target: ldm.modules.diffusionmodules.openaimodel.UNetModel
+      target: src.model.ldm.modules.diffusionmodules.openaimodel.UNetModel
       params:
         use_fp16: True
         image_size: 32 # unused
@@ -36,7 +36,7 @@ model:
         legacy: False
 
     first_stage_config:
-      target: ldm.models.autoencoder.AutoencoderKL
+      target: src.model.ldm.models.autoencoder.AutoencoderKL
       params:
         embed_dim: 4
         monitor: val/rec_loss
@@ -59,7 +59,7 @@ model:
           target: torch.nn.Identity
 
     cond_stage_config:
-      target: ldm.modules.encoders.modules.WebUIFrozenCLIPEmebedder
+      target: src.model.ldm.modules.encoders.modules.WebUIFrozenCLIPEmebedder
       params:
-        version: openai/clip-vit-large-patch14
+        version: ../Tools/openai/clip-vit-large-patch14
         layer: last
