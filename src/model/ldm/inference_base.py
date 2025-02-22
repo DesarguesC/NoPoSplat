@@ -16,8 +16,9 @@ DEFAULT_NEGATIVE_PROMPT = 'longbody, lowres, bad anatomy, bad hands, missing fin
                           'fewer digits, cropped, worst quality, low quality'
 
 class Options(NamedTuple):
+    train_mode: bool = False
     outdir: str = './outputs/'
-    sd_path: str = '../download/v1-5-pruned.ckpt'
+    sd_ckpt: str = '../download/v1-5-pruned.ckpt'
     prompt: str = 'a driving scene with high quality, 4K, highly detailed'
     neg_prompt: str = 'poor result, implausible'
     cond_path: str = None
@@ -25,7 +26,7 @@ class Options(NamedTuple):
     steps: int = 50
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
     vae_ckpt: str = None
-    adapter_ckpt_path: List[str] = [None]
+    adapter_ckpt_path: List[str] = [None, None]
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-inference.yaml'
     frame: int = 16
     H: int = 256 # default
@@ -38,6 +39,7 @@ class Options(NamedTuple):
     allow_cond: List[ExtraCondition] = [ExtraCondition.ray, ExtraCondition.feature]
 
 class Train_Options(Options):
+    train_mode: bool = True
     prompt: str = 'a driving scene inside the car with high quality, 4K, highly detailed'
     batch_size: int = 8
     epochs: int = 5 # TODO: debug
@@ -63,8 +65,8 @@ class Train_Options(Options):
     mlp_ratio: int = 4
     norm_im2_in_dec: bool = True
     pos_embed: str = 'cosine'
-    decoder_weights_path: str = ''
-    device: str = 'cuda'
+    decoder_weights_path: str = './pretrained_weights/mixRe10kDl3dv.ckpt'
+    device: str = 'cpu' # for parallel, automatically locate
 
 
 def make_options(train_mode = False):
@@ -283,14 +285,14 @@ def get_latent_adapter(opt, train_mode: bool = True, cond_type: List[ExtraCondit
     adapter['model'] = [get_cond_adapter(cond, frame=opt.frame, device=device) for cond in cond_type]
     if len(adapter['cond_weight']) != len(adapter['model']):
         adapter['cond_weight'] = [1. for i in range(len(adapter['model']))]
-    ckpt_path_list = getattr(opt, 'adapter_ckpt_path', [None])
+    ckpt_path_list = getattr(opt, 'adapter_ckpt_path', [None, None])
     if not train_mode or len(ckpt_path_list) < len(adapter['model']):
         adapter['model'] = [
             adapter['model'][i].load_state_dict(torch.load(ckpt_path_list[i]))
             for i in range(len(adapter['model']))
         ]
 
-    return adapter
+    return adapter # dict_keys(['cond_weight', 'model'])
 
 
 def diffusion_inference(opt, model, sampler, adapter_features, batch_size=1, append_to_context=None):

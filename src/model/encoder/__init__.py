@@ -21,10 +21,9 @@ ENCODERS = {
 EncoderCfg = EncoderNoPoSplatCfg
 
 
-def get_encoder(cfg: EncoderCfg) -> tuple[Encoder, Optional[EncoderVisualizer]]:
-    pdb.set_trace()
+def get_encoder(cfg: EncoderCfg, args = None) -> tuple[Encoder, Optional[EncoderVisualizer]]:
     encoder, visualizer = ENCODERS[cfg.name]
-    encoder = encoder(cfg)
+    encoder = encoder(cfg=cfg, args=args)
     if visualizer is not None:
         visualizer = visualizer(cfg.visualizer, encoder)
     return encoder, visualizer

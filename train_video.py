@@ -9,7 +9,7 @@ from pathlib import Path
 
 import hydra
 import torch
-import wandb, pdb
+import wandb, pdb, itertools
 import signal
 from colorama import Fore
 # from jaxtyping import install_import_hook
@@ -147,9 +147,7 @@ def read_config_folder(config_path: Path) -> OmegaConf:
 
 def main(cfg_folder: str = './config'):
     opt = make_options(train_mode = True)
-    pdb.set_trace()
     cfg = load_yaml_files_recursively(cfg_folder)
-    # cfg = load_typed_root_config(cfg)
     cfg.mode = 'val' # useless
     cfg.model.encoder.name = 'videosplat' # ?
 
@@ -162,8 +160,6 @@ def main(cfg_folder: str = './config'):
     torch.cuda.set_device(opt.local_rank)
 
     # TODO: load data
-    pdb.set_trace()
-    # opt.frame = cfg.model.encoder.num_frames
     train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame)
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(
@@ -174,44 +170,44 @@ def main(cfg_folder: str = './config'):
         pin_memory=True,
         sampler=train_sampler
     )
-    pdb.set_trace()
     # Load Model from encoder_videosplat.py
-    encoder, _ = get_encoder(cfg.model.encoder)
+    encoder, _ = get_encoder(cfg.model.encoder, args=opt)
     # from .model.encoder.encoder_videosplat import EncoderVideoSplat
     # encoder = EncoderVideoSplat(config)
-    sd_config = encoder.cfg
+    sd_config = encoder.sd_cfg
     # encoder: encoder_videosplat.py - class EncoderVideoSplat
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # to gpus
+
     model_video_mamba = torch.nn.parallel.DistributedDataParallel(
-        encoder.backbone,
+        encoder.backbone.cuda(),
         device_ids=[opt.local_rank],
         output_device=opt.local_rank
     )
     model_ad_ray = torch.nn.parallel.DistributedDataParallel(
-        encoder.adapter_dict['ray'],
+        encoder.adapter_dict['model'][0].cuda(),
         device_ids=[opt.local_rank],
         output_device=opt.local_rank
     )
     model_ad_mamba_feat = torch.nn.parallel.DistributedDataParallel(
-        encoder.adapter_dict['feature'],
+        encoder.adapter_dict['model'][1].cuda(),
         device_ids=[opt.local_rank],
         output_device=opt.local_rank
     )
     model_sd = torch.nn.parallel.DistributedDataParallel(
-        encoder.sd_model,
+        encoder.sd_model.cuda(),
         device_ids=[opt.local_rank],
         output_device=opt.local_rank
     )
 
     # optimizer
-    params = list(model_video_mamba.parameters()) + list(model_ad_ray.parameters()) + list(model_ad_mamba_feat.parameters())
+    params = itertools.chain(model_video_mamba.parameters(), model_ad_ray.parameters(), model_ad_mamba_feat.parameters())
     optimizer = torch.optim.AdamW(params, lr=sd_config['training']['lr'])
-
     experiments_root = osp.join('experiments', opt.name)
-
     # resume state
     resume_state = load_resume_state(opt)
+
+
     if resume_state is None:
         mkdir_and_rename(experiments_root)
         start_epoch = 0
@@ -237,12 +233,12 @@ def main(cfg_folder: str = './config'):
 
     # copy the yml file to the experiment root
     copy_opt_file(opt.config, experiments_root)
-
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
     for epoch in range(start_epoch, opt.epochs):
         train_dataloader.sampler.set_epoch(epoch)
         # train
+        pdb.set_trace()
         for _, data in enumerate(train_dataloader):
             # TODO: 这里的data要和context一样的结构
             current_iter += 1

@@ -42,33 +42,32 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
     backbone: nn.Module
     gaussian_adapter: GaussianAdapter
 
-    def __init__(self, cfg: EncoderNoPoSplatCfg, train_mode: bool = False) -> None:
+    def __init__(self, cfg: EncoderNoPoSplatCfg, args = None) -> None:
         super().__init__(cfg)
         self.head_control_type = UNDEFINED_VALUE # unset
         """
             1: 只有一种head，需要加上时间编码接口
             2: 有两种head，静态head无需时间编码，动态head需要时间编码接口（与1用的相同）
         """
-        pdb.set_trace()
-        self.backbone = get_backbone(cfg.backbone, 3) # VideoMamba
-        self.train_mode = train_mode
+        self.backbone = get_backbone(cfg.backbone, 3, args) # VideoMamba
+        self.train_mode = args.train_mode
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         self.pose_free = cfg.pose_free
-        if self.pose_free:
-            self.gaussian_adapter = UnifiedGaussianAdapter(cfg.gaussian_adapter)
-        else:
-            self.gaussian_adapter = GaussianAdapter(cfg.gaussian_adapter)
+
+        # if self.pose_free:
+        #     self.gaussian_adapter = UnifiedGaussianAdapter(cfg.gaussian_adapter)
+        # else:
+        #     self.gaussian_adapter = GaussianAdapter(cfg.gaussian_adapter)
 
         self.patch_size = self.backbone.enc_patch_size
-        self.raw_gs_dim = 1 + self.gaussian_adapter.d_in  # 1 for opacity
+        # self.raw_gs_dim = 1 + self.gaussian_adapter.d_in  # 1 for opacity
 
-        self.gs_params_head_type = cfg.gs_params_head_type
+        # self.gs_params_head_type = cfg.gs_params_head_type
 
-
-        self.sd_opt = make_options(train_mode = (cfg.mode is not 'test'))
+        self.sd_opt = make_options(train_mode=args.train_mode)
         self.sd_model, self.sampler, self.sd_cfg = get_sd_models(self.sd_opt, return_cfg=True)
-        self.adapter_list = get_latent_adapter(self.sd_opt, train_mode=train_mode, cond_type=self.sd_opt.allow_cond, device=self.device)
+        self.adapter_dict = get_latent_adapter(self.sd_opt, train_mode=args.train_mode, cond_type=self.sd_opt.allow_cond, device=self.device)
         # 'model': list 'cond_weight': list
 
 

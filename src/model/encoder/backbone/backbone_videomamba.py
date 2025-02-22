@@ -680,8 +680,6 @@ class VideoMamba(nn.Module):
             for (k, v) in ckpt_weights.items():
                 if k.startswith('encoder.backbone.') and 'decoder_embed' not in k:
                     new_ckpt[k[17:]] = v
-                else:
-                    del ckpt_weights[k]
 
             # decoder_embed映射重新训练
             if not any(k.startswith('dec_blocks2') for k in ckpt_weights):
@@ -691,6 +689,8 @@ class VideoMamba(nn.Module):
             self.croco_decoder.load_state_dict(new_ckpt, strict=False)
         else:
             raise ValueError(f"Invalid checkpoint format: {weights_path}")
+
+        del ckpt_weights
 
     def _decoder(self, feature, position, extra_embed = None):
         # feature: [b, 2 * f * p, e]
