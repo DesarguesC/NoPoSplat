@@ -1,4 +1,4 @@
-name: videomamba
+name: croco
 
 model: ViTLarge_BaseDecoder
 patch_embed_cls: PatchEmbedDust3R
@@ -8,12 +8,3 @@ intrinsics_embed_loc: 'encoder'
 intrinsics_embed_degree: 4
 intrinsics_embed_type: 'token'
 
-mamba_choice: "base"
-num_frames: 20
-seed: 32768
-dec_embed_dim: 768
-dec_depth: 12
-dec_num_heads: 16
-mlp_ratio: 4,
-norm_im2_in_dec: true
-pos_embed: "cosine"

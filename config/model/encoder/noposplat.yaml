@@ -1,7 +1,4 @@
-#defaults:
-#  - backbone: videomamba
-
-name: videosplat
+name: videomamba
 
 opacity_mapping:
   initial: 0.0
@@ -32,3 +29,13 @@ gs_params_head_type: dpt-video # -> sole head (static) -> 只编码我指定的�
 # dpt-video-hierarchical -> static head + dynamic head
 pose_free: true
 pretrained_weights: ""
+
+mamba_choice: "base"
+num_frames: 20
+seed: 32768
+dec_embed_dim: 768
+dec_depth: 12
+dec_num_heads: 16
+mlp_ratio: 4,
+norm_im2_in_dec: true
+pos_embed: "cosine"
