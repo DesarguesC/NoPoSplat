@@ -140,6 +140,8 @@ class V2XSeqDataset():
         return len(self.vehicle_list)
 
     def __getitem__(self, idx):
+        pdb.set_trace()
+
         item_dict = {}
         item_dict['video'] = torch.cat([img2tensor(cv2.imread(u))[None,:] for u in self.infrastructure_list[idx]], dim=0)
         item_dict['video'] = self.downsampler(item_dict['video']) # [f 3 h w]

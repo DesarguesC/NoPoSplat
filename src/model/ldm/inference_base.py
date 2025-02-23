@@ -28,7 +28,7 @@ class Options(NamedTuple):
     vae_ckpt: str = None
     adapter_ckpt_path: List[str] = [None, None]
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-inference.yaml'
-    frame: int = 16
+    frame: int = 2 # TODO: debug -> Origin: 16
     H: int = 256 # default
     W: int = 256
     C: int = 4

@@ -235,11 +235,11 @@ def main(cfg_folder: str = './config'):
     copy_opt_file(opt.config, experiments_root)
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
+    pdb.set_trace()
     for epoch in range(start_epoch, opt.epochs):
         train_dataloader.sampler.set_epoch(epoch)
         # train
-        pdb.set_trace()
-        for _, data in enumerate(train_dataloader):
+        for _, data in enumerate(train_dataloader): # first check: train_dataset[0]
             # TODO: 这里的data要和context一样的结构
             current_iter += 1
             with torch.no_grad():
