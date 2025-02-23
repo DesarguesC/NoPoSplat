@@ -151,6 +151,19 @@ Note that here we show the evaluation using the mixed model trained on RealEstat
 python -m src.train_video # all params are set as default, or: 
 cd src && python train_video.py
 ```
+#### Parallel Training
+```bash
+export RANK=0 && \
+export WORLD_SIZE=2 && \
+export MASTER_ADDR=localhost && \
+export MASTER_PORT=5678 && \
+export LOCAL_RANK=0 && \
+export CUDA_VISIBLE_DEVICES=0,1 && \
+srun python -m torch.distributed.launch --nproc_per_node=2 --master_port=5678 ./train_video.py
+```
+
+
+
 
 ## Acknowledgements
 This project is developed with several fantastic repos: [pixelSplat](https://github.com/dcharatan/pixelsplat), [DUSt3R](https://github.com/naver/dust3r), and [CroCo](https://github.com/naver/croco). We thank the original authors for their excellent work.
