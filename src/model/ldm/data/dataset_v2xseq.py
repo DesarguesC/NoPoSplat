@@ -42,7 +42,6 @@ class V2XSeqDataset():
         self.downsample = downsample
         # self.res = (ab64(H // downsample), ab64(W // downsample))
         # TODO: set H = W ?
-        # pdb.set_trace()
         # self.res = (self.res[0], self.res[0])
         self.res = train_res
 
@@ -78,7 +77,6 @@ class V2XSeqDataset():
             data_info = json.load(file)
         frames = [(u['vehicle_frame'], u['infrastructure_frame'], u['vehicle_sequence'], u['infrastructure_sequence']) for u in data_info]
 
-        # pdb.set_trace()
         for f in tqdm(frames, desc="Reconstructing V2X-Seq..."):
             assert f[2] == f[3], f'unequal sequence number! veh_frame = {f[0]}, inf_veh = {f[1]}'
 
@@ -123,9 +121,9 @@ class V2XSeqDataset():
                 self.transform_path_list.append([u[:-1] for u in calibration[k][i:i+frame]])
 
     def convert_item(self, item):
-        pdb.set_trace()
+        # item['ray_pos'], item['ray_pos'] -> [f, 3, 256, 256];
         rays = torch.cat([
-                item['ray_pos'][:, :2], .5 * (item['ray_pos'][:, 2] + item['ray_dir'][:, 0])[None, :], item['ray_dir'][:, 1:]
+                item['ray_pos'][:, :2], .5 * (item['ray_pos'][:, 2] + item['ray_dir'][:, 0])[:, None, :], item['ray_dir'][:, 1:]
             ], dim=1) # [f 5 h w]
         rays = repeat(rays[None, :], '1 ... -> n ...', n = 10) # mamba windows length
         return {
@@ -140,7 +138,6 @@ class V2XSeqDataset():
         return len(self.vehicle_list)
 
     def __getitem__(self, idx):
-        pdb.set_trace()
 
         item_dict = {}
         item_dict['video'] = torch.cat([img2tensor(cv2.imread(u))[None,:] for u in self.infrastructure_list[idx]], dim=0)
