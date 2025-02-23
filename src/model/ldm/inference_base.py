@@ -41,7 +41,7 @@ class Options(NamedTuple):
 class Train_Options(Options):
     train_mode: bool = True
     prompt: str = 'a driving scene inside the car with high quality, 4K, highly detailed'
-    batch_size: int = 8
+    batch_size: int = 2 # TODO: debug
     epochs: int = 5 # TODO: debug
     num_workers: int = 8 # cpu cores * 2
     auto_resume: bool = True

@@ -32,7 +32,7 @@ class V2XSeqDataset():
         pos, dir = camera2ray(transform_i2v, veh_intrinsic, resolution=self.res)
         return (torch.tensor(pos, dtype=torch.float32), torch.tensor(dir, dtype=torch.float32))
 
-    def __init__(self, root_path, frame, resolution=(1080,1920), downsample=4, train_res=(256,256)):
+    def __init__(self, root_path, frame, resolution=(1080,1920), downsample=4, train_res=(256,256), cut_down_scale: int = None):
         self.frame = frame
         self.root_path = root_path
         self.config_path = os.path.join(root_path, 'V2X-Seq-SPD', 'cooperative/data_info.json')
@@ -75,6 +75,11 @@ class V2XSeqDataset():
         """
         with open(self.config_path, 'r') as file:
             data_info = json.load(file)
+
+        if cut_down_scale is not None:
+            data_info = [data_info[i] for i in range(len(data_info)) if i % cut_down_scale == 0]
+
+
         frames = [(u['vehicle_frame'], u['infrastructure_frame'], u['vehicle_sequence'], u['infrastructure_sequence']) for u in data_info]
 
         for f in tqdm(frames, desc="Reconstructing V2X-Seq..."):
@@ -127,8 +132,8 @@ class V2XSeqDataset():
             ], dim=1) # [f 5 h w]
         rays = repeat(rays[None, :], '1 ... -> n ...', n = 10) # mamba windows length
         return {
-            'video': item['video'] / 255.,      # [f 3 h w]
-            'intrinsic': item['intrinsic'],     # [f 3 3]
+            'video': rearrange(item['video'] / 255., 'f c h w -> c f h w'),      # [f 3 h w]
+            'intrinsics': item['intrinsic'],     # [f 3 3]
             'vehicle': item['vehicle'] / 255.,  # [f 3 h w]
             # g.t.
             'ray': rearrange(rays, 'n f c h w -> (n f c) h w')
