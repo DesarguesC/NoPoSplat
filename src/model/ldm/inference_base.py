@@ -66,7 +66,7 @@ class Train_Options(Options):
     norm_im2_in_dec: bool = True
     pos_embed: str = 'cosine'
     decoder_weights_path: str = './pretrained_weights/mixRe10kDl3dv.ckpt'
-    device: str = 'cpu' # for parallel, automatically locate
+    device: str = 'cuda' # for parallel, automatically locate
 
 
 def make_options(train_mode = False):

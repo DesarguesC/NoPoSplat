@@ -27,6 +27,8 @@ def get_backbone(cfg: BackboneCfg, d_in: int = 3, args = None) -> nn.Module:
     # if isinstance(backbone, Optional[BackboneResnet, BackboneDino]):
     #     cfg_valid['d_in'] = d_in
     # if isinstance(backbone, VideoMamba):
+
+    # args -> NamedTuple
     return VideoMamba(
             mamba_choice='base',
             num_frames=args.frame,
@@ -39,6 +41,7 @@ def get_backbone(cfg: BackboneCfg, d_in: int = 3, args = None) -> nn.Module:
             pos_embed=args.pos_embed,
             decoder_weights_path=args.decoder_weights_path,
             device=args.device,
+            img_size=(args.H, args.W),
         )
 
     # TODO: write a cfg template | use variables in 'opt'

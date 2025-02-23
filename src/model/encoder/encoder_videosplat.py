@@ -23,6 +23,7 @@ from .encoder_noposplat import EncoderNoPoSplatCfg
 from .visualization.encoder_visualizer_epipolar_cfg import EncoderVisualizerEpipolarCfg
 
 from ..ldm import *
+from typing import NamedTuple
 
 
 inf = float('inf')
@@ -49,6 +50,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
             1: 只有一种head，需要加上时间编码接口
             2: 有两种head，静态head无需时间编码，动态head需要时间编码接口（与1用的相同）
         """
+        pdb.set_trace()
         self.backbone = get_backbone(cfg.backbone, 3, args) # VideoMamba
         self.train_mode = args.train_mode
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -169,9 +171,9 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         pdb.set_trace()
 
         ray_maps = context['ray'] # 'pos': [b f h w 3], 'dir' [b f h w 3]
-        video = context['video'] # [b f 3 h w]
+        video = context['video'] # [b 3 f h w]
         device = video.device
-        b, f, _, h, w = video.shape
+        b, _, f, h, w = video.shape
 
         dec_feature, views = self.backbone(context, return_views=True) # PE & Proj
         """
@@ -185,7 +187,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
             p = (h/p_size) * (w/p_size) * 2 | 因为拼了一个intrinsic_embed
         """
 
-        video = views['video'] # [b f c h w] | c=3
+        video = views['video'] # [b c f h w] | c=3
         shape = views['shape'] # [b*f, 2] | 2: (H,W)
         # allow_cond = list(self.sd_opt.allow_cond)
         cond_weight = list(self.sd_opt.cond_weight)
@@ -342,5 +344,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
             return self.forward_one(context, global_step, visualization_dump)
         elif self.head_control_type == MULTI_HEAD:
             return self.forward_two(context, global_step, visualization_dump)
+        elif self.head_control_type == UNDEFINED_VALUE: # √
+            return self.forward_one(context, global_step, visualization_dump)
         else:
             raise NotImplementedError

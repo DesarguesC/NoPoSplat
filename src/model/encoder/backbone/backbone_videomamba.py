@@ -336,6 +336,7 @@ class VisionMamba(nn.Module):
         # TODO: 用CAT[cls_token, intrinsic_embed] ?
         cls_token = self.cls_token.expand(x.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         x = torch.cat((cls_token, x), dim=1)
+        pdb.set_trace()
         x = x + self.pos_embed # [b*frames, num_patches+1, embed_dim]
         _, p, e = x.shape
         if 'intrinsic_embeddings' in kwargs:
@@ -441,8 +442,10 @@ def load_state_dict(model, state_dict, center=True):
 
 
 @register_model
-def videomamba_tiny(pretrained=False, **kwargs):
+def videomamba_tiny(img_size=(224,224), pretrained=False, **kwargs):
+    H, W = img_size
     model = VisionMamba(
+        img_size=min(H,W),
         patch_size=16, 
         embed_dim=192, 
         depth=24, 
@@ -459,8 +462,10 @@ def videomamba_tiny(pretrained=False, **kwargs):
         load_state_dict(model, state_dict, center=True)
     return model
 @register_model
-def videomamba_small(pretrained=False, **kwargs):
+def videomamba_small(img_size=(224,224), pretrained=False, **kwargs):
+    H, W = img_size
     model = VisionMamba(
+        img_size=min(H, W),
         patch_size=16, 
         embed_dim=384, 
         depth=24, 
@@ -477,8 +482,10 @@ def videomamba_small(pretrained=False, **kwargs):
         load_state_dict(model, state_dict, center=True)
     return model
 @register_model
-def videomamba_middle(pretrained=False, **kwargs):
+def videomamba_middle(img_size=(224,224), pretrained=False, **kwargs):
+    H, W = img_size
     model = VisionMamba(
+        img_size=min(H, W),
         patch_size=16, 
         embed_dim=576, 
         depth=32, 
@@ -495,8 +502,10 @@ def videomamba_middle(pretrained=False, **kwargs):
         load_state_dict(model, state_dict, center=True)
     return model
 @register_model
-def videomamba_base(pretrained=False, **kwargs):
+def videomamba_base(img_size=(224,224), pretrained=False, **kwargs):
+    H, W = img_size
     model = VisionMamba(
+        img_size=min(H,W),
         patch_size=16,
         embed_dim=768,
         depth=32,
@@ -545,12 +554,19 @@ mamba_params = {
     'base':     {'patch_size': 16, 'embed_dim': 768, 'depth': 32},
 }
 
-def VideoMambaModel(mamba_choice='middle', num_frames=20, seed=4217, device='cuda'):
+def VideoMambaModel(
+        mamba_choice='middle',
+        num_frames=20,
+        seed=4217,
+        device='cuda',
+        img_size=(224, 224),
+        **kwargs
+    ):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    model = mambas[mamba_choice](num_frames=num_frames).to(device)
+    model = mambas[mamba_choice](num_frames=num_frames, img_size=img_size, **kwargs).to(device)
     return model
 
 class CrocoDrcoder(nn.Module):
@@ -593,6 +609,8 @@ class VideoMamba(nn.Module):
                  pos_embed='cosine',
                  decoder_weights_path: str = None,
                  device='cuda',
+                 img_size=(224,224),
+                 **kwargs
         ):
         # TODO: 在制作数据的时候插入相同的stride
         # TODO: 如果在forward中随机丢弃stride？
@@ -601,7 +619,9 @@ class VideoMamba(nn.Module):
         self.device = device
         self.num_frames = num_frames
 
-        self.mamba_encoder = VideoMambaModel(mamba_choice, num_frames, seed, device)
+        # pdb.set_trace()
+
+        self.mamba_encoder = VideoMambaModel(mamba_choice, num_frames, seed, device, img_size, **kwargs)
         # frame, batch, 3, 3
         self.enc_embed_dim = mamba_params[mamba_choice]['embed_dim'] # mamba中的embed_dim
         self.enc_patch_size = mamba_params[mamba_choice]['patch_size']
@@ -700,20 +720,20 @@ class VideoMamba(nn.Module):
             feature = torch.cat((feature, extra_embed), dim=-1)
         pdb.set_trace()
         # TODO: embedding transfer
-        b, _, e = feature.shape
-        feature = rearrange(feature, 'b p e -> (b p) e')
-        feature = rearrange(self.croco_decoder.decoder_embed(feature), '(b p) e -> b p e', b = b)
+        b, f, _, e = feature.shape
+        feature = rearrange(feature, 'b f p e -> (b f p) e')
+        feature = rearrange(self.croco_decoder.decoder_embed(feature), '(b f p) e -> b f p e', b = b, f=f)
 
+        b, f, p_, e = position.shape
+        position = rearrange(position, 'b f p e -> (b f p) e')
+        position = rearrange(self.croco_decoder.decoder_embed(position), '(b f p) e -> b f p e', b=b, f=f)
+        # position = rearrange(position, 'b e f p -> b f p e')
 
-        b, e, f, p, q = position.shape
-        position = rearrange(position, 'b e f p q -> (b f p q) e')
-        position = rearrange(self.croco_decoder.decoder_embed(position), '(b f p q) e -> b e f p q', b=b, f=f, p=p)
-        position = rearrange(position, 'b e f p q -> b f (p q) e')
+        # TODO: 需要[b, f, patches, embed_dim]的feature
+        # feature = rearrange(feature, "b (f p) e -> b f p e", b=b, f=f)
+        final_output.append(feature)
 
         pdb.set_trace()
-        # TODO: 需要[b, f, patches, embed_dim]的feature
-        feature = rearrange(feature, "b (f p) e -> b f p e", b=b, f=f)
-        final_output.append(feature)
 
         def generate_ctx_views(x):
             b, f, p, e = x.shape
@@ -758,13 +778,14 @@ class VideoMamba(nn.Module):
                 symmetrize_batch=False, # False
                 return_views=False, # True
                 ):
-        b, f, _, h, w = context['video'].shape
-        b_, f_, _, h_, w_ = context['intrinsics'].shape
+        pdb.set_trace()
+        b, _, f, h, w = context['video'].shape
+        b_, f_, h_, w_ = context['intrinsics'].shape
         assert h == w, f'width unequal to height: h = {h}, w = {w}'
         assert f == f_ and b == b_, (f'videos and intrinsics mismatched at the frame: (f, f_) = {(f, f_)}')
         pdb.set_trace()
         intrinsic_embed = self.intrinsic_encoder(rearrange(context['intrinsics'], 'b f h w -> b (f h w)'))
-        intrinsic_embed = rearrange(intrinsic_embed.reshape((b_, f_, self.embed_dim)), 'b f e -> f b e')
+        intrinsic_embed = rearrange(intrinsic_embed.reshape((b_, f_, self.enc_embed_dim)), 'b f e -> f b e')
         args_dict = {
             'intrinsic_embeddings': intrinsic_embed,
             'destroy_head': True,
@@ -784,8 +805,8 @@ class VideoMamba(nn.Module):
             mamba_hidden_state: [batch, frames, (h*w) / patch_size**2, embed_dim]
             pos: [batch, frames, (h * w) / patch_size**2, embed_dim]
         """
-        pdb.set_trace()
-        decoded_feature = self._decoder(mamba_feature, pos)
+        # pdb.set_trace()
+        decoded_feature = self._decoder(mamba_feature, pos) # inside: pdb.set_trace()
         # list(shape[b, f, p*2, embed_dim]) -> p*2是因为拼了intrinsic
         # TODO: 是否要取每个回归的末尾？
         # decoded_feature = [u[:, :, :-1] for u in list(decoded_feature)]

@@ -4,7 +4,7 @@ import os.path as osp
 from basicsr.utils import (get_env_info, get_root_logger, get_time_str,
                            scandir)
 from basicsr.utils.options import copy_opt_file, dict2str
-
+from einops import repeat, rearrange
 from pathlib import Path
 
 import hydra
@@ -160,6 +160,7 @@ def main(cfg_folder: str = './config'):
     torch.cuda.set_device(opt.local_rank)
 
     # TODO: load data
+    # pdb.set_trace()
     train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame)
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(
@@ -235,7 +236,7 @@ def main(cfg_folder: str = './config'):
     copy_opt_file(opt.config, experiments_root)
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
-    pdb.set_trace()
+    # pdb.set_trace()
     for epoch in range(start_epoch, opt.epochs):
         train_dataloader.sampler.set_epoch(epoch)
         # train
@@ -244,12 +245,14 @@ def main(cfg_folder: str = './config'):
             current_iter += 1
             with torch.no_grad():
                 c = model_sd.module.get_learned_conditioning(opt.prompt)
-                z = model_sd.module.encode_first_stage((data['video'] * 2 - 1.).to(device))
+                video = rearrange(data['video'], 'b c f h w -> (b f) c h w')
+                z = model_sd.module.encode_first_stage((video * 2 - 1.).to(device))
                 z = model_sd.module.get_first_stage_encoding(z)
 
             optimizer.zero_grad()
             model_sd.zero_grad()
-            dec_feat, _ = model_video_mamba(data, return_views=True) # only 'video' used
+            dec_feat, _ = model_video_mamba(context=data, return_views=True) # only 'video' used
+            pdb.set_trace()
             mamba_feat = model_ad_mamba_feat(dec_feat)
             ray_feat = model_ad_ray(data['ray']) # TODO: * 2 - 1 ???
 
