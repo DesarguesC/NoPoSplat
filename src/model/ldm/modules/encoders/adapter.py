@@ -99,7 +99,7 @@ class ResnetBlock(nn.Module):
 
 class Adapter(nn.Module):
     def __init__(self, channels=[320, 640, 1280, 1280], cin=200, nums_rb=3, frame=20, ksize=1, sk=True, use_conv=False,
-                 train_mode=True): # cin: frame * 10
+                 train_mode=True): # cin: frame * n
         # patches: p * n = (H//p_size) * (W//p_size) * 2 * n // 8
         super(Adapter, self).__init__()
         self.frame = frame
@@ -129,7 +129,7 @@ class Adapter(nn.Module):
         *_, p, e = x.shape
         pdb.set_trace()
         # TODO: 看patches还是embeddings
-        x = F.interpolate(rearrange(x, 'n b f p e -> b (f n) p e'), size=(p, p), mode='bilinear')  # 或者n和f放一起？
+        x = F.interpolate(rearrange(x, 'n b f p e -> b (f n) p e'), size=(p, p), mode='bilinear')  # 或者n=13和f放一起？
         x = self.conv_in(x)
         # extract features
         features = []
@@ -321,7 +321,7 @@ class Adapter_light(nn.Module):
 
 
 def main1():
-    dec_feat = torch.randn((10, 2, 20, 256 ** 2 // 256 * 2, 576))  # [n, b, f, p, e] -> [b f (p n) e]
+    dec_feat = torch.randn((13, 2, 20, 512, 768))  # [n, b, f, p, e] -> [b f (p n) e]
     dec_feat = dec_feat.to('cuda')
     pdb.set_trace()
 
@@ -383,5 +383,5 @@ class Adapter_Decoder(nn.Module):
 
 
 if __name__ == '__main__':
-    main2()
+    main1()
 

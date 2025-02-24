@@ -741,7 +741,7 @@ class VideoMamba(nn.Module):
             ctx_views = ctx_views.flatten(2, 3)  # B, F, (F-1)*P, C
             return ctx_views.contiguous()
 
-        pdb.set_trace()
+        # pdb.set_trace()
         pos_ctx = generate_ctx_views(position)
         # TODO: AttributeError: 'VideoMamba' object has no attribute 'dec_blocks'
         for blk1, blk2 in zip(self.croco_decoder.dec_blocks, self.croco_decoder.dec_blocks2):
@@ -760,7 +760,7 @@ class VideoMamba(nn.Module):
             # store the result
             final_output.append(torch.cat((f1, f2), dim=1)) # concatenate with patches
 
-        pdb.set_trace()
+        # pdb.set_trace()
         del final_output[0] # duplicate with final_output[1]
         # final_output[-1] = tuple(map(self.croco_decoder.dec_norm, final_output[-1]))
         # TODO: ↑

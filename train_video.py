@@ -256,6 +256,7 @@ def main(cfg_folder: str = './config'):
             mamba_feat = model_ad_mamba_feat(dec_feat)
             ray_feat = model_ad_ray(data['ray']) # TODO: * 2 - 1 ???
 
+            pdb.set_trace()
             features_adapter = opt.cond_weight[0] * mamba_feat + opt.cond_weight[1] * ray_feat
 
             l_pixel, loss_dict = model_sd(z, c=c, features_adapter=features_adapter)

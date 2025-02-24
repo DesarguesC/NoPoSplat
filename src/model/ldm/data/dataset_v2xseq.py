@@ -130,7 +130,7 @@ class V2XSeqDataset():
         rays = torch.cat([
                 item['ray_pos'][:, :2], .5 * (item['ray_pos'][:, 2] + item['ray_dir'][:, 0])[:, None, :], item['ray_dir'][:, 1:]
             ], dim=1) # [f 5 h w]
-        rays = repeat(rays[None, :], '1 ... -> n ...', n = 10) # mamba windows length
+        rays = repeat(rays[None, :], '1 ... -> n ...', n = 13) # croco windows length
         return {
             'video': rearrange(item['video'] / 255., 'f c h w -> c f h w'),      # [f 3 h w]
             'intrinsics': item['intrinsic'],     # [f 3 3]

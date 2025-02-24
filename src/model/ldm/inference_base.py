@@ -264,14 +264,14 @@ def get_cond_adapter(cond_type: ExtraCondition, frame = 20, device='cuda'):
     if cond_type == ExtraCondition.ray:
         return Adapter_light(
             frame = frame,
-            cin = frame * 5 * 10,  # frames * 10 * 5 [camera ray map channel]
+            cin = frame * 5 * 13,  # frames * 10 * 5 [camera ray map channel]
             channels = [320, 640, 1280, 1280],
             nums_rb = 20,
         ).to(device)
     elif cond_type == ExtraCondition.feature:
         return Adapter(
             frame = frame,
-            cin = frame * 10,
+            cin = frame * 13,
             channels=[320, 640, 1280, 1280],
             nums_rb=20,
         ).to(device)
