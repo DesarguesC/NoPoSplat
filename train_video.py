@@ -252,7 +252,7 @@ def main(cfg_folder: str = './config'):
             optimizer.zero_grad()
             model_sd.zero_grad()
             dec_feat, _ = model_video_mamba(context=data, return_views=True) # only 'video' used
-            pdb.set_trace()
+            pdb.set_trace() # model_video_mamba -> decoded_feature, views
             mamba_feat = model_ad_mamba_feat(dec_feat)
             ray_feat = model_ad_ray(data['ray']) # TODO: * 2 - 1 ???
 

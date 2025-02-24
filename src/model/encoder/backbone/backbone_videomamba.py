@@ -336,7 +336,6 @@ class VisionMamba(nn.Module):
         # TODO: 用CAT[cls_token, intrinsic_embed] ?
         cls_token = self.cls_token.expand(x.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         x = torch.cat((cls_token, x), dim=1)
-        pdb.set_trace()
         x = x + self.pos_embed # [b*frames, num_patches+1, embed_dim]
         _, p, e = x.shape
         if 'intrinsic_embeddings' in kwargs:
@@ -400,7 +399,6 @@ class VisionMamba(nn.Module):
             else ret_state
 
     def forward(self, x, inference_params=None, **kwargs):
-        pdb.set_trace()
         forward_features = self.forward_features(x, inference_params, **kwargs)
 
         if kwargs.get('return_pos', False) and kwargs.get('intrinsic_embeddings', None) is not None:
@@ -718,7 +716,7 @@ class VideoMamba(nn.Module):
         final_output = [feature]
         if extra_embed is not None:
             feature = torch.cat((feature, extra_embed), dim=-1)
-        pdb.set_trace()
+        # pdb.set_trace()
         # TODO: embedding transfer
         b, f, _, e = feature.shape
         feature = rearrange(feature, 'b f p e -> (b f p) e')
@@ -733,7 +731,7 @@ class VideoMamba(nn.Module):
         # feature = rearrange(feature, "b (f p) e -> b f p e", b=b, f=f)
         final_output.append(feature)
 
-        pdb.set_trace()
+        # pdb.set_trace()
 
         def generate_ctx_views(x):
             b, f, p, e = x.shape
@@ -745,7 +743,8 @@ class VideoMamba(nn.Module):
 
         pdb.set_trace()
         pos_ctx = generate_ctx_views(position)
-        for blk1, blk2 in zip(self.dec_blocks, self.dec_blocks2):
+        # TODO: AttributeError: 'VideoMamba' object has no attribute 'dec_blocks'
+        for blk1, blk2 in zip(self.croco_decoder.dec_blocks, self.croco_decoder.dec_blocks2):
             feat_current = final_output[-1]
             feat_current_ctx = generate_ctx_views(feat_current)
             # img1 side
@@ -778,12 +777,10 @@ class VideoMamba(nn.Module):
                 symmetrize_batch=False, # False
                 return_views=False, # True
                 ):
-        pdb.set_trace()
         b, _, f, h, w = context['video'].shape
         b_, f_, h_, w_ = context['intrinsics'].shape
         assert h == w, f'width unequal to height: h = {h}, w = {w}'
         assert f == f_ and b == b_, (f'videos and intrinsics mismatched at the frame: (f, f_) = {(f, f_)}')
-        pdb.set_trace()
         intrinsic_embed = self.intrinsic_encoder(rearrange(context['intrinsics'], 'b f h w -> b (f h w)'))
         intrinsic_embed = rearrange(intrinsic_embed.reshape((b_, f_, self.enc_embed_dim)), 'b f e -> f b e')
         args_dict = {
@@ -805,15 +802,15 @@ class VideoMamba(nn.Module):
             mamba_hidden_state: [batch, frames, (h*w) / patch_size**2, embed_dim]
             pos: [batch, frames, (h * w) / patch_size**2, embed_dim]
         """
-        # pdb.set_trace()
+
         decoded_feature = self._decoder(mamba_feature, pos) # inside: pdb.set_trace()
         # list(shape[b, f, p*2, embed_dim]) -> p*2是因为拼了intrinsic
         # TODO: 是否要取每个回归的末尾？
         # decoded_feature = [u[:, :, :-1] for u in list(decoded_feature)]
         decoded_feature = torch.cat([u[None, :] for u in decoded_feature], dim=0) # -> [N b f 2p e]
 
-        shape = rearrange(shape, '(b f) c -> b f c', b=b, f=f)
-        video = rearrange(context['video'], '(b f) c h w -> b f c h w', b=b, f=f)
+        # shape = rearrange(shape, '(b f) c -> b f c', b=b, f=f)
+        video = rearrange(context['video'], 'b c f h w -> b f c h w')
         views = {
             'shape': shape,
             'video': video,
