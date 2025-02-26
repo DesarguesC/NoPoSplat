@@ -51,6 +51,7 @@ class AttentionPool2d(nn.Module):
         self.attention = QKVAttention(self.num_heads)
 
     def forward(self, x):
+        pdb.set_trace()
         b, c, *_spatial = x.shape
         x = x.reshape(b, c, -1)  # NC(HW)
         x = th.cat([x.mean(dim=-1, keepdim=True), x], dim=-1)  # NC(HW+1)
@@ -80,6 +81,7 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
     """
 
     def forward(self, x, emb, context=None):
+        pdb.set_trace()
         for layer in self:
             if isinstance(layer, TimestepBlock):
                 x = layer(x, emb)
@@ -109,6 +111,7 @@ class Upsample(nn.Module):
             self.conv = conv_nd(dims, self.channels, self.out_channels, 3, padding=padding)
 
     def forward(self, x):
+        pdb.set_trace()
         assert x.shape[1] == self.channels
         if self.dims == 3:
             x = F.interpolate(
@@ -130,6 +133,7 @@ class TransposedUpsample(nn.Module):
         self.up = nn.ConvTranspose2d(self.channels,self.out_channels,kernel_size=ks,stride=2)
 
     def forward(self,x):
+        pdb.set_trace()
         return self.up(x)
 
 
@@ -158,6 +162,7 @@ class Downsample(nn.Module):
             self.op = avg_pool_nd(dims, kernel_size=stride, stride=stride)
 
     def forward(self, x):
+        pdb.set_trace()
         assert x.shape[1] == self.channels
         return self.op(x)
 
@@ -249,6 +254,7 @@ class ResBlock(TimestepBlock):
         :param emb: an [N x emb_channels] Tensor of timestep embeddings.
         :return: an [N x C x ...] Tensor of outputs.
         """
+        pdb.set_trace()
         return checkpoint(
             self._forward, (x, emb), self.parameters(), self.use_checkpoint
         )
@@ -314,6 +320,7 @@ class AttentionBlock(nn.Module):
         self.proj_out = zero_module(conv_nd(1, channels, channels, 1))
 
     def forward(self, x):
+        pdb.set_trace()
         return checkpoint(self._forward, (x,), self.parameters(), True)   # TODO: check checkpoint usage, is True # TODO: fix the .half call!!!
         #return pt_checkpoint(self._forward, x)  # pytorch
 
@@ -361,6 +368,7 @@ class QKVAttentionLegacy(nn.Module):
         :param qkv: an [N x (H * 3 * C) x T] tensor of Qs, Ks, and Vs.
         :return: an [N x (H * C) x T] tensor after attention.
         """
+        pdb.set_trace()
         bs, width, length = qkv.shape
         assert width % (3 * self.n_heads) == 0
         ch = width // (3 * self.n_heads)
@@ -393,6 +401,7 @@ class QKVAttention(nn.Module):
         :param qkv: an [N x (3 * H * C) x T] tensor of Qs, Ks, and Vs.
         :return: an [N x (H * C) x T] tensor after attention.
         """
+        pdb.set_trace()
         bs, width, length = qkv.shape
         assert width % (3 * self.n_heads) == 0
         # ensure the success of trisection
@@ -770,6 +779,7 @@ class UNetModel(nn.Module):
         :return: an [N x C x ...] Tensor of outputs.
         """
         # print('x.shape = ', x.shape)
+
         assert (y is not None) == (
             self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
@@ -788,9 +798,8 @@ class UNetModel(nn.Module):
 
         adapter_idx = 0
         for id, module in enumerate(self.input_blocks):
-            # print('before: h.shape = ', h.shape)
+            pdb.set_trace()
             h = module(h, emb, context)
-            # print('after: h.shape = ', h.shape)
             if ((id+1)%3 == 0) and features_adapter is not None:
                 pdb.set_trace()
                 assert h.shape == features_adapter[adapter_idx].shape, 'h.shape={0}, features_adapter.shape={1}'.format(h.shape, features_adapter[adapter_idx].shape)

@@ -161,7 +161,7 @@ def main(cfg_folder: str = './config'):
 
     # TODO: load data
     # pdb.set_trace()
-    train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame)
+    train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame, cut_down_scale=100)
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -244,7 +244,7 @@ def main(cfg_folder: str = './config'):
             # TODO: 这里的data要和context一样的结构
             current_iter += 1
             with torch.no_grad():
-                c = model_sd.module.get_learned_conditioning(opt.prompt)
+                cc = model_sd.module.get_learned_conditioning(opt.prompt)
                 video = rearrange(data['video'], 'b c f h w -> (b f) c h w')
                 z = model_sd.module.encode_first_stage((video * 2 - 1.).to(device))
                 z = model_sd.module.get_first_stage_encoding(z)
@@ -257,9 +257,9 @@ def main(cfg_folder: str = './config'):
             ray_feat = model_ad_ray(data['ray']) # TODO: * 2 - 1 ???
 
             pdb.set_trace()
-            features_adapter = opt.cond_weight[0] * mamba_feat + opt.cond_weight[1] * ray_feat
+            features_adapter = [opt.cond_weight[0] * mamba_feat[i] + opt.cond_weight[1] * ray_feat[i] for i in range(len(mamba_feat))]
 
-            l_pixel, loss_dict = model_sd(z, c=c, features_adapter=features_adapter)
+            l_pixel, loss_dict = model_sd(z, c=cc, features_adapter=features_adapter)
             l_pixel.backward()
             optimizer.step()
 

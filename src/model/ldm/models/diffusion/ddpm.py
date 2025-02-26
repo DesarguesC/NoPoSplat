@@ -6,7 +6,7 @@ https://github.com/CompVis/taming-transformers
 -- merci
 """
 
-import torch
+import torch, pdb
 import torch.nn as nn
 import numpy as np
 import pytorch_lightning as pl
@@ -638,6 +638,7 @@ class LatentDiffusion(DDPM):
         return self.scale_factor * z
 
     def get_learned_conditioning(self, c):
+        pdb.set_trace()
         if self.cond_stage_forward is None:
             if hasattr(self.cond_stage_model, 'encode') and callable(self.cond_stage_model.encode):
                 c = self.cond_stage_model.encode(c)
