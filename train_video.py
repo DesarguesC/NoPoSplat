@@ -237,29 +237,31 @@ def main(cfg_folder: str = './config'):
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
     # pdb.set_trace()
-    for epoch in range(start_epoch, opt.epochs):
+    for epoch in range(start_epoch, opt.epochs): # TODO: check 'c' shape
         train_dataloader.sampler.set_epoch(epoch)
         # train
         for _, data in enumerate(train_dataloader): # first check: train_dataset[0]
             # TODO: 这里的data要和context一样的结构
             current_iter += 1
             with torch.no_grad():
-                cc = model_sd.module.get_learned_conditioning(opt.prompt)
-                video = rearrange(data['video'], 'b c f h w -> (b f) c h w')
-                z = model_sd.module.encode_first_stage((video * 2 - 1.).to(device))
-                z = model_sd.module.get_first_stage_encoding(z)
+                # video = rearrange(data['video'], 'b f c h w -> (b f) c h w')
+                c = model_sd.module.get_learned_conditioning([opt.prompt])
+                c = repeat(c, '1 ... -> b ...', b = opt.frame*opt.batch_size)
+                vehicle = rearrange(data['vehicle'], 'b f c h w -> (b f) c h w')
+                z = model_sd.module.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
+                z = model_sd.module.get_first_stage_encoding(z) # padding the noise
 
             optimizer.zero_grad()
             model_sd.zero_grad()
             dec_feat, _ = model_video_mamba(context=data, return_views=True) # only 'video' used
             pdb.set_trace() # model_video_mamba -> decoded_feature, views
-            mamba_feat = model_ad_mamba_feat(dec_feat)
-            ray_feat = model_ad_ray(data['ray']) # TODO: * 2 - 1 ???
+            mamba_feat = model_ad_mamba_feat(dec_feat) # check features' shape
+            ray_feat = model_ad_ray(rearrange(data['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame)) # TODO: * 2 - 1 ???
 
             pdb.set_trace()
             features_adapter = [opt.cond_weight[0] * mamba_feat[i] + opt.cond_weight[1] * ray_feat[i] for i in range(len(mamba_feat))]
 
-            l_pixel, loss_dict = model_sd(z, c=cc, features_adapter=features_adapter)
+            l_pixel, loss_dict = model_sd(z, c=c, features_adapter=features_adapter)
             l_pixel.backward()
             optimizer.step()
 

@@ -132,7 +132,7 @@ class V2XSeqDataset():
             ], dim=1) # [f 5 h w]
         rays = repeat(rays[None, :], '1 ... -> n ...', n = 13) # croco windows length
         return {
-            'video': rearrange(item['video'] / 255., 'f c h w -> c f h w'),      # [f 3 h w]
+            'video': rearrange(item['video'] / 255., 'f c h w -> c f h w'),      # [3 f h w]
             'intrinsics': item['intrinsic'],     # [f 3 3]
             'vehicle': item['vehicle'] / 255.,  # [f 3 h w]
             # g.t.

@@ -279,7 +279,6 @@ class PatchEmbed(nn.Module):
         )
 
     def forward(self, x):
-        pdb.set_trace()
         x = self.proj(x)
         return x
 

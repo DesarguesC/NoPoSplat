@@ -130,6 +130,7 @@ class DDPM(pl.LightningModule):
         self.logvar = torch.full(fill_value=logvar_init, size=(self.num_timesteps,))
         if self.learn_logvar:
             self.logvar = nn.Parameter(self.logvar, requires_grad=True)
+        self.logvar = self.logvar.to(self.device)
 
         self.ucg_training = ucg_training or dict()
         if self.ucg_training:
@@ -829,7 +830,7 @@ class LatentDiffusion(DDPM):
             key = 'c_concat' if self.model.conditioning_key == 'concat' else 'c_crossattn'
             cond = {key: cond}
 
-        x_recon = self.model(x_noisy, t, **cond, **kwargs)
+        x_recon = self.model(x_noisy, t, **cond, **kwargs) # unet ...
 
         if isinstance(x_recon, tuple) and not return_ids:
             return x_recon[0]
