@@ -789,7 +789,7 @@ class UNetModel(nn.Module):
         pdb.set_trace()
         adapter_idx = 0 # check 'h' batch size
         for id, module in enumerate(self.input_blocks):
-            pdb.set_trace()
+            # pdb.set_trace()
             h = module(h, emb, context)
             if ((id+1)%3 == 0) and features_adapter is not None:
                 pdb.set_trace()
@@ -800,13 +800,11 @@ class UNetModel(nn.Module):
                 adapter_idx += 1
             hs.append(h)
         """
-        shape: 256 * 256
-        [
-            torch.Size([2, 320, 32, 32]), torch.Size([2, 320, 32, 32]), torch.Size([2, 320, 32, 32]), 
-            torch.Size([2, 320, 16, 16]), torch.Size([2, 640, 16, 16]), torch.Size([2, 640, 16, 16]), 
-            torch.Size([2, 640, 8, 8]), torch.Size([2, 1280, 8, 8]), torch.Size([2, 1280, 8, 8]), 
-            torch.Size([2, 1280, 4, 4]), torch.Size([2, 1280, 4, 4]), torch.Size([2, 1280, 4, 4])
-        ]
+        input shape: 256 * 256
+            torch.Size([4, 320, 32, 32]), torch.Size([4, 320, 32, 32]), torch.Size([4, 320, 32, 32]), 
+            torch.Size([4, 320, 16, 16]), torch.Size([4, 640, 16, 16]), torch.Size([4, 640, 16, 16]), 
+            torch.Size([4, 640, 8, 8]), torch.Size([4, 1280, 8, 8]), torch.Size([4, 1280, 8, 8]), 
+            torch.Size([4, 1280, 4, 4]), torch.Size([4, 1280, 4, 4]), torch.Size([4, 1280, 4, 4]))
         """
         if features_adapter is not None:
             assert len(features_adapter)==adapter_idx, 'Wrong features_adapter'
