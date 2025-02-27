@@ -51,7 +51,6 @@ class AttentionPool2d(nn.Module):
         self.attention = QKVAttention(self.num_heads)
 
     def forward(self, x):
-        pdb.set_trace()
         b, c, *_spatial = x.shape
         x = x.reshape(b, c, -1)  # NC(HW)
         x = th.cat([x.mean(dim=-1, keepdim=True), x], dim=-1)  # NC(HW+1)
@@ -81,7 +80,6 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
     """
 
     def forward(self, x, emb, context=None):
-        pdb.set_trace()
         for layer in self:
             if isinstance(layer, TimestepBlock):
                 x = layer(x, emb)
@@ -111,7 +109,6 @@ class Upsample(nn.Module):
             self.conv = conv_nd(dims, self.channels, self.out_channels, 3, padding=padding)
 
     def forward(self, x):
-        pdb.set_trace()
         assert x.shape[1] == self.channels
         if self.dims == 3:
             x = F.interpolate(
@@ -133,7 +130,6 @@ class TransposedUpsample(nn.Module):
         self.up = nn.ConvTranspose2d(self.channels,self.out_channels,kernel_size=ks,stride=2)
 
     def forward(self,x):
-        pdb.set_trace()
         return self.up(x)
 
 
@@ -162,7 +158,6 @@ class Downsample(nn.Module):
             self.op = avg_pool_nd(dims, kernel_size=stride, stride=stride)
 
     def forward(self, x):
-        pdb.set_trace()
         assert x.shape[1] == self.channels
         return self.op(x)
 
@@ -254,7 +249,6 @@ class ResBlock(TimestepBlock):
         :param emb: an [N x emb_channels] Tensor of timestep embeddings.
         :return: an [N x C x ...] Tensor of outputs.
         """
-        pdb.set_trace()
         return checkpoint(
             self._forward, (x, emb), self.parameters(), self.use_checkpoint
         )
@@ -320,7 +314,6 @@ class AttentionBlock(nn.Module):
         self.proj_out = zero_module(conv_nd(1, channels, channels, 1))
 
     def forward(self, x):
-        pdb.set_trace()
         return checkpoint(self._forward, (x,), self.parameters(), True)   # TODO: check checkpoint usage, is True # TODO: fix the .half call!!!
         #return pt_checkpoint(self._forward, x)  # pytorch
 
@@ -368,7 +361,6 @@ class QKVAttentionLegacy(nn.Module):
         :param qkv: an [N x (H * 3 * C) x T] tensor of Qs, Ks, and Vs.
         :return: an [N x (H * C) x T] tensor after attention.
         """
-        pdb.set_trace()
         bs, width, length = qkv.shape
         assert width % (3 * self.n_heads) == 0
         ch = width // (3 * self.n_heads)
@@ -401,7 +393,6 @@ class QKVAttention(nn.Module):
         :param qkv: an [N x (3 * H * C) x T] tensor of Qs, Ks, and Vs.
         :return: an [N x (H * C) x T] tensor after attention.
         """
-        pdb.set_trace()
         bs, width, length = qkv.shape
         assert width % (3 * self.n_heads) == 0
         # ensure the success of trisection
@@ -795,15 +786,16 @@ class UNetModel(nn.Module):
 
         if append_to_context is not None:
             context = torch.cat([context, append_to_context], dim=1)
-
-        adapter_idx = 0
+        pdb.set_trace()
+        adapter_idx = 0 # check 'h' batch size
         for id, module in enumerate(self.input_blocks):
             pdb.set_trace()
             h = module(h, emb, context)
             if ((id+1)%3 == 0) and features_adapter is not None:
                 pdb.set_trace()
-                assert h.shape == features_adapter[adapter_idx].shape, 'h.shape={0}, features_adapter.shape={1}'.format(h.shape, features_adapter[adapter_idx].shape)
-                h = h + features_adapter[adapter_idx]
+                # assert h.shape == features_adapter[adapter_idx].shape, 'h.shape={0}, features_adapter.shape={1}'.format(h.shape, features_adapter[adapter_idx].shape)
+                if h.shape == features_adapter[adapter_idx].shape:
+                    h = h + features_adapter[adapter_idx]
                 # inject features gained from adapters into convolution layer in u-net
                 adapter_idx += 1
             hs.append(h)
@@ -818,8 +810,9 @@ class UNetModel(nn.Module):
         """
         if features_adapter is not None:
             assert len(features_adapter)==adapter_idx, 'Wrong features_adapter'
+        pdb.set_trace()
+        h = self.middle_block(h, emb, context) # check the shape of 'h' in hs list
 
-        h = self.middle_block(h, emb, context)
         for module in self.output_blocks:
             h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb, context)
