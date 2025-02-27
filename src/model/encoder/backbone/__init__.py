@@ -30,7 +30,7 @@ def get_backbone(cfg: BackboneCfg, d_in: int = 3, args = None) -> nn.Module:
 
     # args -> NamedTuple
     return VideoMamba(
-            mamba_choice='base',
+            mamba_choice=args.mamba_size,
             num_frames=args.frame,
             seed=args.seed,
             dec_embed_dim=args.dec_embed_dim,

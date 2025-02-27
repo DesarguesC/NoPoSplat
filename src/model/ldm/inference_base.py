@@ -29,6 +29,7 @@ class Options(NamedTuple):
     adapter_ckpt_path: List[str] = [None, None]
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-inference.yaml'
     frame: int = 2 # TODO: debug -> Origin: 16
+    mamba_size: str = 'base'
     H: int = 256 # default
     W: int = 256
     C: int = 4
@@ -43,7 +44,7 @@ class Train_Options(Options):
     prompt: str = 'a driving scene inside the car with high quality, 4K, highly detailed'
     batch_size: int = 2 # TODO: debug
     epochs: int = 5 # TODO: debug
-    num_workers: int = 8 # cpu cores * 2
+    num_workers: int = 16 # cpu cores * 2
     auto_resume: bool = True
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-train.yaml'
     resume_state_path: str
@@ -59,6 +60,8 @@ class Train_Options(Options):
     local_rank: int = 0
     launcher: str = 'pytorch'
 
+    # 'base'
+    mamba_size: str = 'base'
     dec_embed_dim: int = 768
     dec_depth: int = 12
     dec_num_heads: int = 16
@@ -67,6 +70,14 @@ class Train_Options(Options):
     pos_embed: str = 'cosine'
     decoder_weights_path: str = './pretrained_weights/mixRe10kDl3dv.ckpt'
     device: str = 'cuda' # for parallel, automatically locate
+"""
+mamba_params = {
+    'tiny':     {'patch_size': 16, 'embed_dim': 192, 'depth': 24},
+    'small':    {'patch_size': 16, 'embed_dim': 384, 'depth': 24},
+    'middle':   {'patch_size': 16, 'embed_dim': 576, 'depth': 32},
+    'base':     {'patch_size': 16, 'embed_dim': 768, 'depth': 32},
+}
+"""
 
 
 def make_options(train_mode = False):
