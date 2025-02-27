@@ -564,7 +564,7 @@ def VideoMambaModel(
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    model = mambas[mamba_choice](num_frames=num_frames, img_size=img_size, **kwargs).to(device)
+    model = mambas[mamba_choice](num_frames=num_frames, img_size=img_size, **kwargs).cuda()
     return model
 
 class CrocoDrcoder(nn.Module):
@@ -659,7 +659,7 @@ class VideoMamba(nn.Module):
             self.enc_embed_dim, dec_embed_dim,
             dec_num_heads, dec_depth, mlp_ratio,
             norm_layer, norm_im2_in_dec,
-            rope=self.rope).to(device)
+            rope=self.rope).cuda()
         # initializer weights
         # self.initialize_weights()
         if self.mask_token is not None: torch.nn.init.normal_(self.mask_token, std=.02)
@@ -866,15 +866,15 @@ def main():
         torch.cat([img2tensor(img_list[i])[None, :, :, :] for i in range(u_i, u_i + num_frames)]) for u_i in u if u_i + num_frames < len(img_list)
     ]
     batch_size = len(monocular_tensor)
-    video_tensor = torch.cat([tensor[None, :, :, :, :] for tensor in monocular_tensor], dim=0).to(device)
+    video_tensor = torch.cat([tensor[None, :, :, :, :] for tensor in monocular_tensor], dim=0).cuda()
     # batch, frame, 3, H, W
     input = video_tensor.permute(0, 2, 1, 3, 4)
 
-    intrinsics = torch.randn((batch_size, num_frames, 3, 3)).to(device)
+    intrinsics = torch.randn((batch_size, num_frames, 3, 3)).cuda()
     encoder_fn = nn.Sequential(
         nn.Linear(9 * num_frames, 2048),
         nn.Linear(2048, num_frames * 576)
-    ).to(device)
+    ).cuda()
 
     intrinsic_embed = encoder_fn(rearrange(intrinsics, 'b f h w -> b (f h w)'))
     intrinsic_embed = rearrange(intrinsic_embed.reshape((batch_size, num_frames, 576)), 'b f e -> f b e')

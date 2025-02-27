@@ -1,6 +1,7 @@
 
 import logging, yaml, os
 import os.path as osp
+from accelerate import Accelerator
 from basicsr.utils import (get_env_info, get_root_logger, get_time_str,
                            scandir)
 from basicsr.utils.options import copy_opt_file, dict2str
@@ -157,11 +158,17 @@ def main(cfg_folder: str = './config'):
     # distributed setting
     init_dist(opt.launcher)
     torch.backends.cudnn.benchmark = True
+    print(f'local_rank: {opt.local_rank}')
     torch.cuda.set_device(opt.local_rank)
 
     # TODO: load data
     # pdb.set_trace()
     train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame, cut_down_scale=100)
+    # accelerator = Accelerator()
+    # model, optimizer, training_dataloader, scheduler = accelerator.prepare(
+    #     model, optimizer, training_dataloader, scheduler
+    # )
+
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -183,22 +190,26 @@ def main(cfg_folder: str = './config'):
     model_video_mamba = torch.nn.parallel.DistributedDataParallel(
         encoder.backbone.cuda(),
         device_ids=[opt.local_rank],
-        output_device=opt.local_rank
+        output_device=opt.local_rank,
+        find_unused_parameters=True,
     )
     model_ad_ray = torch.nn.parallel.DistributedDataParallel(
         encoder.adapter_dict['model'][0].cuda(),
         device_ids=[opt.local_rank],
-        output_device=opt.local_rank
+        output_device=opt.local_rank,
+        # find_unused_parameters=True,
     )
     model_ad_mamba_feat = torch.nn.parallel.DistributedDataParallel(
         encoder.adapter_dict['model'][1].cuda(),
         device_ids=[opt.local_rank],
-        output_device=opt.local_rank
+        output_device=opt.local_rank,
+        # find_unused_parameters=True,
     )
     model_sd = torch.nn.parallel.DistributedDataParallel(
         encoder.sd_model.cuda(),
         device_ids=[opt.local_rank],
-        output_device=opt.local_rank
+        output_device=opt.local_rank,
+        # find_unused_parameters=True,
     )
 
     # optimizer
@@ -254,11 +265,11 @@ def main(cfg_folder: str = './config'):
             optimizer.zero_grad()
             model_sd.zero_grad()
             dec_feat, _ = model_video_mamba(context=data, return_views=True) # only 'video' used
-            pdb.set_trace() # model_video_mamba -> decoded_feature, views
+            # pdb.set_trace() # model_video_mamba -> decoded_feature, views
             mamba_feat = model_ad_mamba_feat(dec_feat) # check features' shape
             ray_feat = model_ad_ray(rearrange(data['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame)) # TODO: * 2 - 1 ???
 
-            pdb.set_trace()
+            # pdb.set_trace()
             features_adapter = [opt.cond_weight[0] * mamba_feat[i] + opt.cond_weight[1] * ray_feat[i] for i in range(len(mamba_feat))]
 
             l_pixel, loss_dict = model_sd(z, c=c, features_adapter=features_adapter)
