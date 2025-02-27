@@ -104,6 +104,7 @@ class Adapter(nn.Module):
         super(Adapter, self).__init__()
         self.frame = frame
         self.shuffle = nn.PixelShuffle(2)  # amend ?
+        self.cin_conv = nn.Conv2d(cin, cin, 3, 1, 1)
         self.conv_in = nn.Sequential(
             nn.PixelUnshuffle(8),
             nn.Conv2d(cin * 64, channels[0], 3, 1, 1), # -> ..., 64, 64
@@ -127,9 +128,9 @@ class Adapter(nn.Module):
 
     def forward(self, x): # x -> ..., [32, 32] [16, 16], [8, 8], [4, 4]
         *_, p, e = x.shape
-        pdb.set_trace()
         # TODO: 看patches还是embeddings
         x = F.interpolate(rearrange(x, 'n b f p e -> b (f n) p e'), size=(p, p), mode='bilinear')  # 或者n=13和f放一起？
+        x = self.cin_conv(x)
         x = self.conv_in(x)
         # extract features
         features = []
@@ -289,6 +290,7 @@ class Adapter_light(nn.Module):
         self.frame = frame
         # self.embedding_proj = PatchEmbed(img_size=img_size, patch_size=patch_size, embed_dim=embed_dim)
         # self.shuffle = nn.PixelShuffle(4)
+        self.cin_conv = nn.Conv2d(cin, cin , 3, 1, 1)
         self.conv_in = nn.Sequential(
             nn.PixelUnshuffle(4),
             nn.Conv2d(cin * 16, channels[0], 3, 1, 1),
@@ -308,8 +310,8 @@ class Adapter_light(nn.Module):
         self.body = nn.ModuleList(self.body)
 
     def forward(self, x):
-        pdb.set_trace()
         # x = rearrange(x, 'n b f c h w -> b (n f c) h w')
+        x = self.cin_conv(x)
         x = self.conv_in(x)
         features = []
 
