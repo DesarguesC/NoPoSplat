@@ -159,7 +159,15 @@ export MASTER_ADDR=localhost && \
 export MASTER_PORT=5678 && \
 export LOCAL_RANK=0 && \
 export CUDA_VISIBLE_DEVICES=0,1 # 预设变量不能与python放在同一行，否则会导致每个并行程序都能看到两张卡
-srun python -m torch.distributed.launch --nproc_per_node=2 --nnodes 1 --master_port=5678 ./train_video.py
+python -m torch.distributed.launch --nproc_per_node=2 --nnodes 1 --master_port=5678 ./train_video.py
+```
+If it's on slurm, use
+```bash
+srun --gres=gpu:2 --nodes=1 --ntasks=1 \
+torchrun \
+--nproc_per_node=2 \
+--master_port=5678 \
+./train_video.py
 ```
 
 
