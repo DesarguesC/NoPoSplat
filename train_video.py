@@ -7,7 +7,7 @@ from basicsr.utils import (get_env_info, get_root_logger, get_time_str,
 from basicsr.utils.options import copy_opt_file, dict2str
 from einops import repeat, rearrange
 from pathlib import Path
-
+import argparse
 import hydra
 import torch
 import wandb, pdb, itertools
@@ -147,19 +147,27 @@ def read_config_folder(config_path: Path) -> OmegaConf:
 
 
 def main(cfg_folder: str = './config'):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--local_rank", type=int, default=int(os.getenv('LOCAL_RANK', 0)))
+    args = parser.parse_args()
+
     opt = make_options(train_mode = True)
     cfg = load_yaml_files_recursively(cfg_folder)
-    cfg.mode = 'val' # useless
+    cfg.mode = 'train' # useless
     cfg.model.encoder.name = 'videosplat' # ?
 
     torch.manual_seed(cfg.seed)
     opt = opt._replace(seed=cfg.seed)
+    local_rank = args.local_rank
 
     # distributed setting
     init_dist(opt.launcher)
     torch.backends.cudnn.benchmark = True
-    print(f'local_rank: {opt.local_rank}')
-    torch.cuda.set_device(opt.local_rank)
+    print(f'local_rank: {local_rank}')
+    torch.cuda.set_device(local_rank)
+
+    print(f"LOCAL_RANK={local_rank}, CUDA_VISIBLE_DEVICES={os.getenv('CUDA_VISIBLE_DEVICES')}")
+    print(f"Rank {local_rank} is using GPU {torch.cuda.current_device()}")
 
     # TODO: load data
     # pdb.set_trace()

@@ -56,7 +56,7 @@ class Train_Options(Options):
     f: int = 8
     sample_steps: int = 50
     n_samples: int = 1
-    gpus: list = [0,1,2,3] # gpu idx
+    gpus: list = [0,1] # gpu idx
     local_rank: int = 0
     launcher: str = 'pytorch'
 
