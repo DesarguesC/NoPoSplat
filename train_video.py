@@ -199,7 +199,7 @@ def main(cfg_folder: str = './config'):
         encoder.backbone.cuda(),
         device_ids=[opt.local_rank],
         output_device=opt.local_rank,
-        find_unused_parameters=True,
+        # find_unused_parameters=True,
     )
     model_ad_ray = torch.nn.parallel.DistributedDataParallel(
         encoder.adapter_dict['model'][0].cuda(),

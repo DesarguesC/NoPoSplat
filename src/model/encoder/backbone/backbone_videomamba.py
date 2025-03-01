@@ -593,6 +593,15 @@ class CrocoDrcoder(nn.Module):
         # final norm layer
         self.dec_norm = norm_layer(dec_embed_dim)
 
+class encoder_intrinsic(nn.Module):
+    def __init__(self, num_frames, enc_embed_dim):
+        super().__init__()
+        self.linear1 = nn.Linear(9 * num_frames, 2048)
+        self.linear2 = nn.Linear(2048, num_frames * enc_embed_dim)
+
+    def forward(self, x):
+        return self.linear2(self.linear1(x))
+
 class VideoMamba(nn.Module):
     def __init__(self,
                  mamba_choice='base',
@@ -623,13 +632,7 @@ class VideoMamba(nn.Module):
         # frame, batch, 3, 3
         self.enc_embed_dim = mamba_params[mamba_choice]['embed_dim'] # mamba中的embed_dim
         self.enc_patch_size = mamba_params[mamba_choice]['patch_size']
-        self.intrinsic_encoder = nn.Sequential(
-            nn.Linear(9 * num_frames, 2048),
-            nn.Linear(2048, num_frames * self.enc_embed_dim)
-        )
-        # self.encoder_to_decoder = nn.Sequential(
-        #     nn.Linear(self.enc_embed_dim, dec_embed_dim),
-        # )
+        self.intrinsic_encoder = encoder_intrinsic(num_frames, self.enc_embed_dim).cuda()
 
         # TODO: maps to [b, embed_dim, frames, h / patch_size, w / patch_size]
         # 「See Line - 319'forward_features'」
@@ -781,7 +784,12 @@ class VideoMamba(nn.Module):
         b_, f_, h_, w_ = context['intrinsics'].shape
         assert h == w, f'width unequal to height: h = {h}, w = {w}'
         assert f == f_ and b == b_, (f'videos and intrinsics mismatched at the frame: (f, f_) = {(f, f_)}')
+        tmp = context['intrinsics']
+        device_ = next(self.intrinsic_encoder.parameters()).device
+        print(f'intrinsic_encoder.device = {device_}, context[\'intrinsics\'] = {tmp.device}')
+
         intrinsic_embed = self.intrinsic_encoder(rearrange(context['intrinsics'], 'b f h w -> b (f h w)'))
+
         intrinsic_embed = rearrange(intrinsic_embed.reshape((b_, f_, self.enc_embed_dim)), 'b f e -> f b e')
         args_dict = {
             'intrinsic_embeddings': intrinsic_embed,
