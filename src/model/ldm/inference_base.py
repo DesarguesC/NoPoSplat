@@ -37,7 +37,7 @@ class Options(NamedTuple):
     scale: int = 7.5
     seed: int = 42
     cond_weight: List[float] = [1., 1.] # TODO: as dynamic params in training procedure ?
-    allow_cond: List[ExtraCondition] = [ExtraCondition.ray, ExtraCondition.feature]
+    allow_cond: List[ExtraCondition] = [ExtraCondition.feature, ExtraCondition.ray]
 
 class Train_Options(Options):
     train_mode: bool = True

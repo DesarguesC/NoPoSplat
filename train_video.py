@@ -26,7 +26,7 @@ from basicsr.utils.dist_util import get_dist_info, init_dist, master_only
 from src.config import load_typed_root_config
 from src.model.ldm import *
 from src.model.encoder import get_encoder
-    # from src.model.model_wrapper import ModelWrapper
+# from src.model.model_wrapper import ModelWrapper
 
 def cyan(text: str) -> str:
     return f"{Fore.CYAN}{text}{Fore.RESET}"
@@ -146,9 +146,9 @@ def read_config_folder(config_path: Path) -> OmegaConf:
 
 
 def main(cfg_folder: str = './config'):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--local_rank", type=int, default=int(os.getenv('LOCAL_RANK', 0)))
-    args = parser.parse_args()
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("--local_rank", type=int, default=int(os.getenv('LOCAL_RANK', 0)))
+    # args = parser.parse_args()
 
     opt = make_options(train_mode = True)
     cfg = load_yaml_files_recursively(cfg_folder)
@@ -157,7 +157,7 @@ def main(cfg_folder: str = './config'):
 
     torch.manual_seed(cfg.seed)
     opt = opt._replace(seed=cfg.seed)
-    local_rank = args.local_rank
+    local_rank = int(os.getenv('LOCAL_RANK', 0))
 
     # distributed setting
     init_dist(opt.launcher)
