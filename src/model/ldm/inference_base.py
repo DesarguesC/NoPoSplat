@@ -42,8 +42,9 @@ class Options(NamedTuple):
 class Train_Options(Options):
     train_mode: bool = True
     prompt: str = 'a driving scene inside the car with high quality, 4K, highly detailed'
-    batch_size: int = 2 # TODO: debug
-    epochs: int = 5 # TODO: debug
+    batch_size: int = 8 # TODO: debug
+    epochs: int = 6 # TODO: debug
+    frame: int = 16
     num_workers: int = 16 # cpu cores * 2
     auto_resume: bool = True
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-train.yaml'

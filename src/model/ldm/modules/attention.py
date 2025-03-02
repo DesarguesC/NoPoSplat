@@ -239,10 +239,6 @@ class MemoryEfficientCrossAttention(nn.Module):
         #     print(f'context.shape = {context.shape}\n')
 
         b, _, _ = q.shape
-
-        import time
-        time.sleep(10)
-
         q, k, v = map(
             lambda t: t.unsqueeze(3)
             .reshape(b, t.shape[1], self.heads, self.dim_head)
