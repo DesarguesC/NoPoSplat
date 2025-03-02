@@ -231,7 +231,8 @@ def main(cfg_folder: str = './config'):
         shuffle=False,
         num_workers=opt.num_workers,
         pin_memory=True,
-        sampler=train_sampler
+        sampler=train_sampler,
+        drop_last=True,
     )
     # Load Model from encoder_videosplat.py
     encoder, _ = get_encoder(cfg.model.encoder, args=opt)
@@ -329,30 +330,38 @@ def main(cfg_folder: str = './config'):
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
     # pdb.set_trace()
+
+    rank, world_size = get_dist_info()
     for epoch in range(start_epoch, opt.epochs): # TODO: check 'c' shape
         train_dataloader.sampler.set_epoch(epoch)
         # train
         for _, data in enumerate(train_dataloader): # first check: train_dataset[0]
             # TODO: 这里的data要和context一样的结构
             current_iter += 1
-            for (k,v) in data.items():
-                data[k] = data[k].to(f'cuda:{local_rank}')
+            # for (k,v) in data.items():
+            #     data[k] = data[k].to(f'cuda:{local_rank}')
 
             with torch.no_grad():
                 # video = rearrange(data['video'], 'b f c h w -> (b f) c h w')
                 c = model_sd.get_learned_conditioning([opt.prompt])
-                c = repeat(c, '1 ... -> b ...', b = opt.frame*opt.batch_size)
+                c = repeat(c, '1 ... -> b ...', b = (opt.frame * opt.batch_size // world_size))
                 vehicle = rearrange(data['vehicle'], 'b f c h w -> (b f) c h w')
                 z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
 
+            # pdb.set_trace()
             optimizer.zero_grad()
             model_sd.zero_grad()
 
             adapter_features = v2x_generator(data)
-            l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
-            
-            rank, _ = get_dist_info()
+            try:  # TODO: single GPU debug
+                l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
+            except Exception as err:
+                print(f'err: {err}')
+                pdb.set_trace()
+
+
+
             log_gpu_memory(rank, local_rank, interval=5)
 
             l_pixel.backward()
@@ -363,9 +372,9 @@ def main(cfg_folder: str = './config'):
 
             # save checkpoint
             
-            # if (rank == 0) and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
-            if rank == 0: # TODO: Debug
-                pdb.set_trace()
+            if (rank == 0) and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
+            # if rank == 0: # TODO: Debug
+                # pdb.set_trace()
                 save_filename = f'v2x_generator_{current_iter + 1}.pth'
                 save_path = os.path.join(experiments_root, 'models', save_filename)
                 save_dict = {}
@@ -381,7 +390,7 @@ def main(cfg_folder: str = './config'):
                                   f'{model_name[2]}.{key[17:]}' if key[7:].startswith('adapter_1') else \
                                   None
                         save_dict[key] = param.cpu()
-                pdb.set_trace()
+                # pdb.set_trace()
 
                 torch.save(save_dict, save_path)
                 # save state
