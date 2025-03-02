@@ -232,11 +232,11 @@ class MemoryEfficientCrossAttention(nn.Module):
         k = self.to_k(context)
         v = self.to_v(context)
 
-        print(f'\nx.shape = {x.shape}\nq.shape = {q.shape}\nk.shape = {k.shape}\nv.shape = {v.shape}\n')
-        if isinstance(context, list):
-            print(f'context[0].shape = {context[0].shape}\n')
-        else:
-            print(f'context.shape = {context.shape}\n')
+        # print(f'\nx.shape = {x.shape}\nq.shape = {q.shape}\nk.shape = {k.shape}\nv.shape = {v.shape}\n')
+        # if isinstance(context, list):
+        #     print(f'context[0].shape = {context[0].shape}\n')
+        # else:
+        #     print(f'context.shape = {context.shape}\n')
 
         b, _, _ = q.shape
 
