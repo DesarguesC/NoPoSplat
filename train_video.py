@@ -5,10 +5,11 @@ from basicsr.utils import (get_env_info, get_root_logger, get_time_str,
                            scandir)
 from basicsr.utils.options import copy_opt_file, dict2str
 from einops import repeat, rearrange
-from pathlib import Path
 import argparse
 import hydra
 import torch
+import torch.distributed as dist
+from datetime import datetime
 import wandb, pdb, itertools
 import signal
 from colorama import Fore
@@ -145,6 +146,53 @@ def read_config_folder(config_path: Path) -> OmegaConf:
         raise ValueError(f"{config_path} 不是一个有效的文件夹路径")
 
 
+def log_gpu_memory(rank, local_rank, interval=5):
+    """
+    定期记录所有GPU的显存占用情况（仅在rank 0汇总输出）
+
+    Args:
+        rank (int): 全局进程编号
+        local_rank (int): 当前节点的GPU编号
+        interval (int): 监控间隔（分钟）
+    """
+    # 确保只在rank 0初始化计时器
+    if rank == 0:
+        last_log_time = datetime.now()
+
+    def _log():
+        nonlocal last_log_time
+        # 仅在rank 0触发时间判断
+        if rank == 0:
+            current_time = datetime.now()
+            if (current_time - last_log_time).seconds < interval * 60:
+                return False
+            last_log_time = current_time
+            return True
+        return False
+
+    if _log():
+        # 获取当前进程的显存信息（单位：MB）
+        current_mem = torch.cuda.memory_allocated(local_rank) / 1024 ** 2
+        max_mem = torch.cuda.max_memory_allocated(local_rank) / 1024 ** 2
+
+        # 收集所有进程的数据
+        world_size = dist.get_world_size()
+        gather_list = [torch.zeros(2, dtype=torch.float32).to(local_rank) for _ in range(world_size)]  # [current, max]
+        tensor = torch.tensor([current_mem, max_mem], dtype=torch.float32).to(local_rank)
+        dist.all_gather(gather_list, tensor)
+
+        # 仅在rank 0打印
+        if rank == 0:
+            mem_info = []
+            for i, data in enumerate(gather_list):
+                mem_info.append(f"GPU {i}: Current={data[0]:.2f}MB, Max={data[1]:.2f}MB")
+            print("\n\n\n===== GPU Memory Usage =====")
+            print("\n".join(mem_info))
+            print("===========================\n\n\n")
+
+        # 重置最大显存统计（可选）
+        # torch.cuda.reset_max_memory_allocated(local_rank)
+
 def main(cfg_folder: str = './config'):
     # parser = argparse.ArgumentParser()
     # parser.add_argument("--local_rank", type=int, default=int(os.getenv('LOCAL_RANK', 0)))
@@ -243,6 +291,7 @@ def main(cfg_folder: str = './config'):
         v2x_wrapper,
         device_ids=[local_rank],
         output_device=local_rank,
+        find_unused_parameters=True,
     )
 
     # optimizer
@@ -302,6 +351,9 @@ def main(cfg_folder: str = './config'):
 
             adapter_features = v2x_generator(data)
             l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
+            
+            rank, _ = get_dist_info()
+            log_gpu_memory(rank, local_rank, interval=5)
 
             l_pixel.backward()
             optimizer.step()
@@ -310,21 +362,27 @@ def main(cfg_folder: str = './config'):
                 logger.info(loss_dict)
 
             # save checkpoint
-            rank, _ = get_dist_info()
+            
             # if (rank == 0) and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
-            if rank == 0:
-                save_filename = f'model_ad_{current_iter + 1}.pth'
+            if rank == 0: # TODO: Debug
+                pdb.set_trace()
+                save_filename = f'v2x_generator_{current_iter + 1}.pth'
                 save_path = os.path.join(experiments_root, 'models', save_filename)
                 save_dict = {}
                 state_dict_list = [
                     v2x_generator.state_dict()
                 ]
-                model_name = ['video_mamba', 'feature', 'ray']
+                model_name = ['video_mamba', 'feature', 'ray'] # backbone & adapter_0 & adapter_0
                 for i in range(len(state_dict_list)):
                     for key, param in state_dict_list[i].items():
                         if key.startswith('module.'):  # remove unnecessary 'module.'
-                            key = f'{model_name[i]}.{key[7:]}'
+                            key = f'{model_name[0]}.{key[16:]}' if key[7:].startswith('backbone') else \
+                                  f'{model_name[1]}.{key[17:]}' if key[7:].startswith('adapter_0') else \
+                                  f'{model_name[2]}.{key[17:]}' if key[7:].startswith('adapter_1') else \
+                                  None
                         save_dict[key] = param.cpu()
+                pdb.set_trace()
+
                 torch.save(save_dict, save_path)
                 # save state
                 state = {'epoch': epoch, 'iter': current_iter + 1, 'optimizers': optimizer.state_dict()}
