@@ -1,4 +1,3 @@
-
 import logging, yaml, os
 import os.path as osp
 from accelerate import Accelerator
@@ -181,7 +180,7 @@ def main(cfg_folder: str = './config'):
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=opt.batch_size,
-        shuffle=(train_sampler is None),
+        shuffle=False,
         num_workers=opt.num_workers,
         pin_memory=True,
         sampler=train_sampler
@@ -192,42 +191,67 @@ def main(cfg_folder: str = './config'):
     # encoder = EncoderVideoSplat(config)
     sd_config = encoder.sd_cfg
     # encoder: encoder_videosplat.py - class EncoderVideoSplat
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    # to gpus
 
-    model_video_mamba = torch.nn.parallel.DistributedDataParallel(
-        encoder.backbone.cuda(),
-        device_ids=[opt.local_rank],
-        output_device=opt.local_rank,
-        # find_unused_parameters=True,
-    )
-    model_ad_ray = torch.nn.parallel.DistributedDataParallel(
-        encoder.adapter_dict['model'][0].cuda(),
-        device_ids=[opt.local_rank],
-        output_device=opt.local_rank,
-        # find_unused_parameters=True,
-    )
-    model_ad_mamba_feat = torch.nn.parallel.DistributedDataParallel(
-        encoder.adapter_dict['model'][1].cuda(),
-        device_ids=[opt.local_rank],
-        output_device=opt.local_rank,
-        # find_unused_parameters=True,
-    )
-    model_sd = torch.nn.parallel.DistributedDataParallel(
-        encoder.sd_model.cuda(),
-        device_ids=[opt.local_rank],
-        output_device=opt.local_rank,
-        # find_unused_parameters=True,
+    # Replace the previous device check with this more thorough version
+    local_device = torch.device('cuda', local_rank)
+    # Ensure models are on correct devices before DDP wrapping
+    encoder.backbone = encoder.backbone.to(local_device)
+    encoder.adapter_dict['model'][0] = encoder.adapter_dict['model'][0].to(local_device)
+    encoder.adapter_dict['model'][1] = encoder.adapter_dict['model'][1].to(local_device)
+    model_sd = encoder.sd_model.to(f'cuda:{local_rank}')
+
+    encoder.backbone.train()
+    encoder.adapter_dict['model'][0].train()
+    encoder.adapter_dict['model'][1].train()
+    model_sd.train()
+
+    class ModelWrapper(torch.nn.Module):
+        def __init__(self, backbone, adapter_0, adapter_1):
+            super().__init__()
+            self.backbone = backbone
+            self.adapter_0 = adapter_0
+            self.adapter_1 = adapter_1
+            
+            # Add device verification
+            self.verify_devices()
+            
+        def verify_devices(self):
+            # Ensure all submodules are on the same device
+            backbone_device = next(self.backbone.parameters()).device
+            for name, module in [('adapter_0', self.adapter_0), ('adapter_1', self.adapter_1)]:
+                module_device = next(module.parameters()).device
+                assert backbone_device == module_device, f"Device mismatch: backbone on {backbone_device}, {name} on {module_device}"
+        
+        def forward(self, x):
+            dec_feat, _ = self.backbone(context=x, return_views=True)
+            mamba_feat = self.adapter_0(dec_feat)
+            ray_feat = self.adapter_1(rearrange(x['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
+            
+            # Add shape validation
+            assert len(mamba_feat) == len(ray_feat), "Feature list length mismatch"
+            features_adapter = [
+                opt.cond_weight[0] * mamba_feat[i] + opt.cond_weight[1] * ray_feat[i] 
+                for i in range(len(mamba_feat))
+            ]
+            
+            return features_adapter
+    
+    # Check and fix device placement
+    v2x_wrapper = ModelWrapper(encoder.backbone, encoder.adapter_dict['model'][0], encoder.adapter_dict['model'][1])
+
+    v2x_generator = torch.nn.parallel.DistributedDataParallel(
+        v2x_wrapper,
+        device_ids=[local_rank],
+        output_device=local_rank,
     )
 
     # optimizer
-    params = itertools.chain(model_video_mamba.parameters(), model_ad_ray.parameters(), model_ad_mamba_feat.parameters())
-    optimizer = torch.optim.AdamW(params, lr=sd_config['training']['lr'])
+    # params = itertools.chain(model_video_mamba.parameters(), model_ad_ray.parameters(), model_ad_mamba_feat.parameters())
+    optimizer = torch.optim.AdamW(v2x_generator.parameters(), lr=sd_config['training']['lr'])
     experiments_root = osp.join('experiments', opt.name)
     # resume state
     resume_state = load_resume_state(opt)
-
-
+    
     if resume_state is None:
         mkdir_and_rename(experiments_root)
         start_epoch = 0
@@ -262,25 +286,23 @@ def main(cfg_folder: str = './config'):
         for _, data in enumerate(train_dataloader): # first check: train_dataset[0]
             # TODO: 这里的data要和context一样的结构
             current_iter += 1
+            for (k,v) in data.items():
+                data[k] = data[k].to(f'cuda:{local_rank}')
+
             with torch.no_grad():
                 # video = rearrange(data['video'], 'b f c h w -> (b f) c h w')
-                c = model_sd.module.get_learned_conditioning([opt.prompt])
+                c = model_sd.get_learned_conditioning([opt.prompt])
                 c = repeat(c, '1 ... -> b ...', b = opt.frame*opt.batch_size)
                 vehicle = rearrange(data['vehicle'], 'b f c h w -> (b f) c h w')
-                z = model_sd.module.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
-                z = model_sd.module.get_first_stage_encoding(z) # padding the noise
+                z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
+                z = model_sd.get_first_stage_encoding(z) # padding the noise
 
             optimizer.zero_grad()
             model_sd.zero_grad()
-            dec_feat, _ = model_video_mamba(context=data, return_views=True) # only 'video' used
-            # pdb.set_trace() # model_video_mamba -> decoded_feature, views
-            mamba_feat = model_ad_mamba_feat(dec_feat) # check features' shape
-            ray_feat = model_ad_ray(rearrange(data['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame)) # TODO: * 2 - 1 ???
 
-            # pdb.set_trace()
-            features_adapter = [opt.cond_weight[0] * mamba_feat[i] + opt.cond_weight[1] * ray_feat[i] for i in range(len(mamba_feat))]
+            adapter_features = v2x_generator(data)
+            l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
 
-            l_pixel, loss_dict = model_sd(z, c=c, features_adapter=features_adapter)
             l_pixel.backward()
             optimizer.step()
 
@@ -289,14 +311,13 @@ def main(cfg_folder: str = './config'):
 
             # save checkpoint
             rank, _ = get_dist_info()
-            if (rank == 0) and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
+            # if (rank == 0) and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
+            if rank == 0:
                 save_filename = f'model_ad_{current_iter + 1}.pth'
                 save_path = os.path.join(experiments_root, 'models', save_filename)
                 save_dict = {}
                 state_dict_list = [
-                    model_video_mamba.state_dict(),
-                    model_ad_mamba_feat.state_dict(),
-                    model_ad_ray.state_dict()
+                    v2x_generator.state_dict()
                 ]
                 model_name = ['video_mamba', 'feature', 'ray']
                 for i in range(len(state_dict_list)):

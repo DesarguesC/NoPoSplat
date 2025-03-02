@@ -784,6 +784,10 @@ class VideoMamba(nn.Module):
         b_, f_, h_, w_ = context['intrinsics'].shape
         assert h == w, f'width unequal to height: h = {h}, w = {w}'
         assert f == f_ and b == b_, (f'videos and intrinsics mismatched at the frame: (f, f_) = {(f, f_)}')
+
+        local_rank = os.getenv('LOCAL_RANK')
+        context['intrinsics'] = context['intrinsics'].to(f'cuda:{local_rank}')
+
         tmp = context['intrinsics']
         device_ = next(self.intrinsic_encoder.parameters()).device
         print(f'intrinsic_encoder.device = {device_}, context[\'intrinsics\'] = {tmp.device}')

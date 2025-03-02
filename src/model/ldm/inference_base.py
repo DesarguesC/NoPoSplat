@@ -217,10 +217,15 @@ def get_base_argument_parser() -> argparse.ArgumentParser:
 
     return parser
 
-def get_sd_models(opt, return_cfg = False):
+def get_sd_models(opt, return_cfg = False, debug = False):
     """
     build stable diffusion model, sampler
     """
+    if debug:
+        if return_cfg:
+            return None, None, None
+        else:
+            return None, None
     # SD
     config = OmegaConf.load(f"{opt.config}")
     model = load_model_from_config(config, opt.sd_ckpt, opt.vae_ckpt)
