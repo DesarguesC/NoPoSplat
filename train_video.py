@@ -1,10 +1,16 @@
 import logging, yaml, os
 import os.path as osp
 from accelerate import Accelerator
+from accelerate.logging import get_logger
+from accelerate.utils import set_seed
+from accelerate.state import AcceleratorState
+from accelerate.utils import ProjectConfiguration
+
 from basicsr.utils import (get_env_info, get_root_logger, get_time_str,
                            scandir)
 from basicsr.utils.options import copy_opt_file, dict2str
 from einops import repeat, rearrange
+from transformers import get_scheduler
 import argparse
 import hydra
 import torch
@@ -13,7 +19,7 @@ from datetime import datetime
 import wandb, pdb, itertools
 import signal
 from colorama import Fore
-# from jaxtyping import install_import_hook
+from torch.utils.data import DataLoader
 from omegaconf import DictConfig, OmegaConf
 
 # Configure beartype and jaxtyping.
@@ -146,58 +152,15 @@ def read_config_folder(config_path: Path) -> OmegaConf:
         raise ValueError(f"{config_path} 不是一个有效的文件夹路径")
 
 
-def log_gpu_memory(rank, local_rank, interval=5):
-    """
-    定期记录所有GPU的显存占用情况（仅在rank 0汇总输出）
-
-    Args:
-        rank (int): 全局进程编号
-        local_rank (int): 当前节点的GPU编号
-        interval (int): 监控间隔（分钟）
-    """
-    # 确保只在rank 0初始化计时器
-    if rank == 0:
-        last_log_time = datetime.now()
-
-    def _log():
-        nonlocal last_log_time
-        # 仅在rank 0触发时间判断
-        if rank == 0:
-            current_time = datetime.now()
-            if (current_time - last_log_time).seconds < interval * 60:
-                return False
-            last_log_time = current_time
-            return True
-        return False
-
-    if _log():
-        # 获取当前进程的显存信息（单位：MB）
-        current_mem = torch.cuda.memory_allocated(local_rank) / 1024 ** 2
-        max_mem = torch.cuda.max_memory_allocated(local_rank) / 1024 ** 2
-
-        # 收集所有进程的数据
-        world_size = dist.get_world_size()
-        gather_list = [torch.zeros(2, dtype=torch.float32).to(local_rank) for _ in range(world_size)]  # [current, max]
-        tensor = torch.tensor([current_mem, max_mem], dtype=torch.float32).to(local_rank)
-        dist.all_gather(gather_list, tensor)
-
-        # 仅在rank 0打印
-        if rank == 0:
-            mem_info = []
-            for i, data in enumerate(gather_list):
-                mem_info.append(f"GPU {i}: Current={data[0]:.2f}MB, Max={data[1]:.2f}MB")
-            print("\n\n\n===== GPU Memory Usage =====")
-            print("\n".join(mem_info))
-            print("===========================\n\n\n")
-
-        # 重置最大显存统计（可选）
-        # torch.cuda.reset_max_memory_allocated(local_rank)
-
 def main(cfg_folder: str = './config'):
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("--local_rank", type=int, default=int(os.getenv('LOCAL_RANK', 0)))
-    # args = parser.parse_args()
 
+    # accelerator = Accelerator()
+    accelerator = Accelerator(
+        mixed_precision='fp16',  # Enable automatic mixed precision
+        gradient_accumulation_steps=1,  # Adjust if needed
+        log_with="wandb",  # If you're using wandb
+    )
+    
     opt = make_options(train_mode = True)
     cfg = load_yaml_files_recursively(cfg_folder)
     cfg.mode = 'train' # useless
@@ -205,54 +168,38 @@ def main(cfg_folder: str = './config'):
 
     torch.manual_seed(cfg.seed)
     opt = opt._replace(seed=cfg.seed)
-    local_rank = int(os.getenv('LOCAL_RANK', 0))
+    # local_rank = int(os.getenv('LOCAL_RANK', 0))
 
     # distributed setting
-    init_dist(opt.launcher)
-    torch.backends.cudnn.benchmark = True
-    print(f'local_rank: {local_rank}')
-    torch.cuda.set_device(local_rank)
-
-    print(f"LOCAL_RANK={local_rank}, CUDA_VISIBLE_DEVICES={os.getenv('CUDA_VISIBLE_DEVICES')}")
-    print(f"Rank {local_rank} is using GPU {torch.cuda.current_device()}")
+    # init_dist(opt.launcher)
+    # torch.backends.cudnn.benchmark = True
+    # print(f'local_rank: {local_rank}')
+    # torch.cuda.set_device(local_rank)
+    #
+    # print(f"LOCAL_RANK={local_rank}, CUDA_VISIBLE_DEVICES={os.getenv('CUDA_VISIBLE_DEVICES')}")
+    # print(f"Rank {local_rank} is using GPU {torch.cuda.current_device()}")
 
     # TODO: load data
     # pdb.set_trace()
     train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame, cut_down_scale=1)
-    # accelerator = Accelerator()
-    # model, optimizer, training_dataloader, scheduler = accelerator.prepare(
-    #     model, optimizer, training_dataloader, scheduler
-    # )
-
-    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=opt.batch_size,
-        shuffle=False,
-        num_workers=opt.num_workers,
-        pin_memory=True,
-        sampler=train_sampler,
-        drop_last=True,
-    )
     # Load Model from encoder_videosplat.py
     encoder, _ = get_encoder(cfg.model.encoder, args=opt)
-    # from .model.encoder.encoder_videosplat import EncoderVideoSplat
-    # encoder = EncoderVideoSplat(config)
-    sd_config = encoder.sd_cfg
-    # encoder: encoder_videosplat.py - class EncoderVideoSplat
-
-    # Replace the previous device check with this more thorough version
-    local_device = torch.device('cuda', local_rank)
-    # Ensure models are on correct devices before DDP wrapping
-    encoder.backbone = encoder.backbone.to(local_device)
-    encoder.adapter_dict['model'][0] = encoder.adapter_dict['model'][0].to(local_device)
-    encoder.adapter_dict['model'][1] = encoder.adapter_dict['model'][1].to(local_device)
-    model_sd = encoder.sd_model.to(f'cuda:{local_rank}')
-
+    encoder.backbone = encoder.backbone.cuda()
     encoder.backbone.train()
     encoder.adapter_dict['model'][0].train()
     encoder.adapter_dict['model'][1].train()
+    model_sd = encoder.sd_model
     model_sd.train()
+
+    sd_config = encoder.sd_cfg
+    # local_device = torch.device('cuda', local_rank)
+    # encoder.backbone = encoder.backbone.to(local_device)
+    # encoder.adapter_dict['model'][0] = encoder.adapter_dict['model'][0].to(local_device)
+    # encoder.adapter_dict['model'][1] = encoder.adapter_dict['model'][1].to(local_device)
+    # model_sd = encoder.sd_model.to(f'cuda:{local_rank}')
+    # model_sd = accelerator.prepare(model_sd)
+
+    
 
     class ModelWrapper(torch.nn.Module):
         def __init__(self, backbone, adapter_0, adapter_1):
@@ -269,8 +216,10 @@ def main(cfg_folder: str = './config'):
             backbone_device = next(self.backbone.parameters()).device
             for name, module in [('adapter_0', self.adapter_0), ('adapter_1', self.adapter_1)]:
                 module_device = next(module.parameters()).device
-                assert backbone_device == module_device, f"Device mismatch: backbone on {backbone_device}, {name} on {module_device}"
-        
+                if backbone_device != module_device:
+                    print(f"Device mismatch: backbone on {backbone_device}, {name} on {module_device}")
+                    pdb.set_trace()
+
         def forward(self, x):
             dec_feat, _ = self.backbone(context=x, return_views=True)
             mamba_feat = self.adapter_0(dec_feat)
@@ -286,25 +235,31 @@ def main(cfg_folder: str = './config'):
             return features_adapter
     
     # Check and fix device placement
+    train_dataloader = DataLoader(train_dataset, batch_size=opt.batch_size, shuffle=True)  # TODO: with "train_dataset"
     v2x_wrapper = ModelWrapper(encoder.backbone, encoder.adapter_dict['model'][0], encoder.adapter_dict['model'][1])
-
-    v2x_generator = torch.nn.parallel.DistributedDataParallel(
-        v2x_wrapper,
-        device_ids=[local_rank],
-        output_device=local_rank,
-        find_unused_parameters=True,
+    optimizer = torch.optim.AdamW(v2x_wrapper.parameters(), lr=sd_config['training']['lr'])
+    resume_state = load_resume_state(opt)
+    start_epoch = 0 if resume_state is None else resume_state['epoch']
+    num_training_steps = (opt.epochs - start_epoch + 1) * len(train_dataloader)
+    lr_scheduler = get_scheduler(
+        "linear",
+        optimizer=optimizer,
+        num_warmup_steps=0,
+        num_training_steps=num_training_steps
+    )
+    # pdb.set_trace()
+    train_dataloader, v2x_generator, optimizer, lr_scheduler = accelerator.prepare(
+        train_dataloader, v2x_wrapper, optimizer, lr_scheduler
     )
 
     # optimizer
     # params = itertools.chain(model_video_mamba.parameters(), model_ad_ray.parameters(), model_ad_mamba_feat.parameters())
-    optimizer = torch.optim.AdamW(v2x_generator.parameters(), lr=sd_config['training']['lr'])
+
     experiments_root = osp.join('experiments', opt.name)
     # resume state
-    resume_state = load_resume_state(opt)
     
     if resume_state is None:
         mkdir_and_rename(experiments_root)
-        start_epoch = 0
         current_iter = 0
         # WARNING: should not use get_root_logger in the above codes, including the called functions
         # Otherwise the logger will not be properly initialized
@@ -322,7 +277,6 @@ def main(cfg_folder: str = './config'):
         resume_optimizers = resume_state['optimizers']
         optimizer.load_state_dict(resume_optimizers)
         logger.info(f"Resuming training from epoch: {resume_state['epoch']}, " f"iter: {resume_state['iter']}.")
-        start_epoch = resume_state['epoch']
         current_iter = resume_state['iter']
 
     # copy the yml file to the experiment root
@@ -330,49 +284,38 @@ def main(cfg_folder: str = './config'):
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
     # pdb.set_trace()
-
-    rank, world_size = get_dist_info()
     for epoch in range(start_epoch, opt.epochs): # TODO: check 'c' shape
-        train_dataloader.sampler.set_epoch(epoch)
+        # train_dataloader.sampler.set_epoch(epoch)
         # train
         for _, data in enumerate(train_dataloader): # first check: train_dataset[0]
             # TODO: 这里的data要和context一样的结构
             current_iter += 1
+            optimizer.zero_grad()
+            model_sd.zero_grad()  # ?
             # for (k,v) in data.items():
             #     data[k] = data[k].to(f'cuda:{local_rank}')
 
             with torch.no_grad():
                 # video = rearrange(data['video'], 'b f c h w -> (b f) c h w')
                 c = model_sd.get_learned_conditioning([opt.prompt])
-                c = repeat(c, '1 ... -> b ...', b = (opt.frame * opt.batch_size // world_size))
+                c = repeat(c, '1 ... -> b ...', b = (opt.frame * opt.batch_size))
                 vehicle = rearrange(data['vehicle'], 'b f c h w -> (b f) c h w')
                 z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
 
-            # pdb.set_trace()
-            optimizer.zero_grad()
-            model_sd.zero_grad()
-
             adapter_features = v2x_generator(data)
-            try:  # TODO: single GPU debug
-                l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
-            except Exception as err:
-                print(f'err: {err}')
-                pdb.set_trace()
+            l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
 
-
-
-            log_gpu_memory(rank, local_rank, interval=5)
-
-            l_pixel.backward()
+            accelerator.backward(l_pixel)
             optimizer.step()
+            lr_scheduler.step()
 
             if (current_iter + 1) % opt.print_fq == 0:
                 logger.info(loss_dict)
 
             # save checkpoint
             
-            if (rank == 0) and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
+            if accelerator.is_main_process and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
             # if rank == 0: # TODO: Debug
                 # pdb.set_trace()
                 save_filename = f'v2x_generator_{current_iter + 1}.pth'
