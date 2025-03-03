@@ -325,6 +325,8 @@ def main(cfg_folder: str = './config'):
         start_epoch = resume_state['epoch']
         current_iter = resume_state['iter']
 
+    pdb.set_trace() # TODO: 找到爆显存的行
+
     # copy the yml file to the experiment root
     copy_opt_file(opt.config, experiments_root)
     # training
