@@ -354,13 +354,7 @@ def main(cfg_folder: str = './config'):
             model_sd.zero_grad()
 
             adapter_features = v2x_generator(data)
-            try:  # TODO: single GPU debug
-                l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
-            except Exception as err:
-                print(f'err: {err}')
-                pdb.set_trace()
-
-
+            l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
 
             log_gpu_memory(rank, local_rank, interval=5)
 
@@ -371,7 +365,9 @@ def main(cfg_folder: str = './config'):
                 logger.info(loss_dict)
 
             # save checkpoint
-            
+            if (current_iter + 1) % 5 == 0:
+                pdb.set_trace()
+
             if (rank == 0) and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
             # if rank == 0: # TODO: Debug
                 # pdb.set_trace()
