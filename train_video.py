@@ -321,7 +321,7 @@ def main(cfg_folder: str = './config'):
         logger.info(dict2str(sd_config))
         resume_optimizers = resume_state['optimizers']
         optimizer.load_state_dict(resume_optimizers)
-        logger.info(f"Resuming training from epoch: {resume_state['epoch']}, " f"iter: {resume_state['iter']}.")
+        logger.info(f"Resuming training from epoch: {resume_state['epoch']}, iter: {resume_state['iter']}.")
         start_epoch = resume_state['epoch']
         current_iter = resume_state['iter']
 
@@ -340,9 +340,7 @@ def main(cfg_folder: str = './config'):
         for _, data in enumerate(train_dataloader): # first check: train_dataset[0]
             # TODO: 这里的data要和context一样的结构
             current_iter += 1
-            # for (k,v) in data.items():
-            #     data[k] = data[k].to(f'cuda:{local_rank}')
-
+            torch.cuda.empty_cache()
             with torch.no_grad():
                 # video = rearrange(data['video'], 'b f c h w -> (b f) c h w')
                 c = model_sd.get_learned_conditioning([opt.prompt])
@@ -351,24 +349,19 @@ def main(cfg_folder: str = './config'):
                 z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
 
-            # pdb.set_trace()
             optimizer.zero_grad()
             model_sd.zero_grad()
 
+            torch.cuda.empty_cache()
             adapter_features = v2x_generator(data)
             l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
-
-            log_gpu_memory(rank, local_rank, interval=5)
+            # log_gpu_memory(rank, local_rank, interval=5)
 
             l_pixel.backward()
             optimizer.step()
 
             if (current_iter + 1) % opt.print_fq == 0:
                 logger.info(loss_dict)
-
-            # save checkpoint
-            if (current_iter + 1) % 5 == 0:
-                pdb.set_trace()
 
             if (rank == 0) and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
             # if rank == 0: # TODO: Debug
