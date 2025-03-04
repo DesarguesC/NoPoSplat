@@ -362,6 +362,7 @@ def main(cfg_folder: str = './config'):
 
             if (current_iter + 1) % opt.print_fq == 0:
                 logger.info(loss_dict)
+                logger.info({'iter': current_iter})
 
             if (rank == 0) and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
             # if rank == 0: # TODO: Debug
