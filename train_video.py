@@ -188,6 +188,7 @@ def main(cfg_folder: str = './config'):
     encoder.backbone.train()
     encoder.adapter_dict['model'][0].train()
     encoder.adapter_dict['model'][1].train()
+    backbone_model = encoder.backbone # VideoMamba
     model_sd = encoder.sd_model
     model_sd.train()
 
@@ -204,25 +205,25 @@ def main(cfg_folder: str = './config'):
     class ModelWrapper(torch.nn.Module):
         def __init__(self, backbone, adapter_0, adapter_1):
             super().__init__()
-            self.backbone = backbone
+            # self.backbone = backbone
             self.adapter_0 = adapter_0
             self.adapter_1 = adapter_1
             
             # Add device verification
-            self.verify_devices()
+            # self.verify_devices()
             
-        def verify_devices(self):
-            # Ensure all submodules are on the same device
-            backbone_device = next(self.backbone.parameters()).device
-            for name, module in [('adapter_0', self.adapter_0), ('adapter_1', self.adapter_1)]:
-                module_device = next(module.parameters()).device
-                if backbone_device != module_device:
-                    print(f"Device mismatch: backbone on {backbone_device}, {name} on {module_device}")
-                    pdb.set_trace()
+        # def verify_devices(self):
+        #     # Ensure all submodules are on the same device
+        #     backbone_device = next(self.backbone.parameters()).device
+        #     for name, module in [('adapter_0', self.adapter_0), ('adapter_1', self.adapter_1)]:
+        #         module_device = next(module.parameters()).device
+        #         if backbone_device != module_device:
+        #             print(f"Device mismatch: backbone on {backbone_device}, {name} on {module_device}")
+        #             pdb.set_trace()
 
         def forward(self, x):
-            dec_feat, _ = self.backbone(context=x, return_views=True)
-            mamba_feat = self.adapter_0(dec_feat)
+            # dec_feat, _ = self.backbone(context=x, return_views=True)
+            mamba_feat = self.adapter_0(x)
             ray_feat = self.adapter_1(rearrange(x['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
             
             # Add shape validation
@@ -248,8 +249,8 @@ def main(cfg_folder: str = './config'):
         num_training_steps=num_training_steps
     )
     # pdb.set_trace()
-    train_dataloader, v2x_generator, optimizer, lr_scheduler = accelerator.prepare(
-        train_dataloader, v2x_wrapper, optimizer, lr_scheduler
+    train_dataloader, v2x_generator, model_sd, backbone_model, optimizer, lr_scheduler = accelerator.prepare(
+        train_dataloader, v2x_wrapper, model_sd, backbone_model, optimizer, lr_scheduler
     )
 
     # optimizer
@@ -302,8 +303,9 @@ def main(cfg_folder: str = './config'):
                 vehicle = rearrange(data['vehicle'], 'b f c h w -> (b f) c h w')
                 z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
-
-            adapter_features = v2x_generator(data)
+                dec_feat, _ = backbone_model(context=data, return_views=True)
+            # TODO: 这里需要修改
+            adapter_features = v2x_generator(dec_feat)
             l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
 
             accelerator.backward(l_pixel)
@@ -317,7 +319,7 @@ def main(cfg_folder: str = './config'):
             
             if accelerator.is_main_process and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
             # if rank == 0: # TODO: Debug
-                # pdb.set_trace()
+                pdb.set_trace()
                 save_filename = f'v2x_generator_{current_iter + 1}.pth'
                 save_path = os.path.join(experiments_root, 'models', save_filename)
                 save_dict = {}
