@@ -45,7 +45,7 @@ class Train_Options(Options):
     batch_size: int = 2 # TODO: debug
     # b64f20 out of memory
     epochs: int = 10000 # TODO: debug
-    frame: int = 4
+    frame: int = 8
     num_workers: int = 16 # cpu cores * 2
     auto_resume: bool = True
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-train.yaml'

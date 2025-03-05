@@ -188,7 +188,7 @@ def main(cfg_folder: str = './config'):
     encoder.backbone.train()
     encoder.adapter_dict['model'][0].train()
     encoder.adapter_dict['model'][1].train()
-    backbone_model = encoder.backbone # VideoMamba
+    backbone_model = encoder.backbone.cuda() # VideoMamba
     model_sd = encoder.sd_model
     model_sd.train()
 
@@ -221,10 +221,10 @@ def main(cfg_folder: str = './config'):
         #             print(f"Device mismatch: backbone on {backbone_device}, {name} on {module_device}")
         #             pdb.set_trace()
 
-        def forward(self, x):
+        def forward(self, x, item):
             # dec_feat, _ = self.backbone(context=x, return_views=True)
             mamba_feat = self.adapter_0(x)
-            ray_feat = self.adapter_1(rearrange(x['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
+            ray_feat = self.adapter_1(rearrange(item['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
             
             # Add shape validation
             assert len(mamba_feat) == len(ray_feat), "Feature list length mismatch"
@@ -249,8 +249,8 @@ def main(cfg_folder: str = './config'):
         num_training_steps=num_training_steps
     )
     # pdb.set_trace()
-    train_dataloader, v2x_generator, model_sd, backbone_model, optimizer, lr_scheduler = accelerator.prepare(
-        train_dataloader, v2x_wrapper, model_sd, backbone_model, optimizer, lr_scheduler
+    train_dataloader, v2x_generator, optimizer, lr_scheduler = accelerator.prepare(
+        train_dataloader, v2x_wrapper, optimizer, lr_scheduler
     )
 
     # optimizer
@@ -275,6 +275,7 @@ def main(cfg_folder: str = './config'):
         logger = get_root_logger(logger_name='basicsr', log_level=logging.INFO, log_file=log_file)
         logger.info(get_env_info())
         logger.info(dict2str(sd_config))
+        pdb.set_trace()
         resume_optimizers = resume_state['optimizers']
         optimizer.load_state_dict(resume_optimizers)
         logger.info(f"Resuming training from epoch: {resume_state['epoch']}, " f"iter: {resume_state['iter']}.")
@@ -305,7 +306,7 @@ def main(cfg_folder: str = './config'):
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
                 dec_feat, _ = backbone_model(context=data, return_views=True)
             # TODO: 这里需要修改
-            adapter_features = v2x_generator(dec_feat)
+            adapter_features = v2x_generator(dec_feat, data)
             l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
 
             accelerator.backward(l_pixel)
@@ -319,7 +320,7 @@ def main(cfg_folder: str = './config'):
             
             if accelerator.is_main_process and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
             # if rank == 0: # TODO: Debug
-                pdb.set_trace()
+            #     pdb.set_trace()
                 save_filename = f'v2x_generator_{current_iter + 1}.pth'
                 save_path = os.path.join(experiments_root, 'models', save_filename)
                 save_dict = {}
@@ -336,7 +337,6 @@ def main(cfg_folder: str = './config'):
                                   None
                         save_dict[key] = param.cpu()
                 # pdb.set_trace()
-
                 torch.save(save_dict, save_path)
                 # save state
                 state = {'epoch': epoch, 'iter': current_iter + 1, 'optimizers': optimizer.state_dict()}
