@@ -248,17 +248,8 @@ def main(cfg_folder: str = './config'):
         num_warmup_steps=0,
         num_training_steps=num_training_steps
     )
-    # pdb.set_trace()
-    train_dataloader, v2x_generator, optimizer, lr_scheduler = accelerator.prepare(
-        train_dataloader, v2x_wrapper, optimizer, lr_scheduler
-    )
-
-    # optimizer
-    # params = itertools.chain(model_video_mamba.parameters(), model_ad_ray.parameters(), model_ad_mamba_feat.parameters())
-
     experiments_root = osp.join('experiments', opt.name)
     # resume state
-    
     if resume_state is None:
         mkdir_and_rename(experiments_root)
         current_iter = 0
@@ -280,6 +271,11 @@ def main(cfg_folder: str = './config'):
         optimizer.load_state_dict(resume_optimizers)
         logger.info(f"Resuming training from epoch: {resume_state['epoch']}, " f"iter: {resume_state['iter']}.")
         current_iter = resume_state['iter']
+
+    # pdb.set_trace()
+    train_dataloader, v2x_generator, optimizer, lr_scheduler = accelerator.prepare(
+        train_dataloader, v2x_wrapper, optimizer, lr_scheduler
+    )
 
     # copy the yml file to the experiment root
     copy_opt_file(opt.config, experiments_root)
