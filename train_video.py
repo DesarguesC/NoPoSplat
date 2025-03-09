@@ -249,7 +249,7 @@ def main(cfg_folder: str = './config'):
     encoder.adapter_dict['model'][0] = encoder.adapter_dict['model'][0].to(local_device)
     encoder.adapter_dict['model'][1] = encoder.adapter_dict['model'][1].to(local_device)
     model_sd = encoder.sd_model.to(f'cuda:{local_rank}')
-    encoder.backbone = encoder.backbone.to(f'cuda:{local_rank}')
+    model_backbone = encoder.backbone.to(f'cuda:{local_rank}')
 
     encoder.backbone.train()
     encoder.adapter_dict['model'][0].train()
@@ -294,7 +294,7 @@ def main(cfg_folder: str = './config'):
         v2x_wrapper,
         device_ids=[local_rank],
         output_device=local_rank,
-        find_unused_parameters=True,
+        # find_unused_parameters=True,
     )
 
     # optimizer
@@ -333,13 +333,19 @@ def main(cfg_folder: str = './config'):
     copy_opt_file(opt.config, experiments_root)
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
+
+    move_to_gpu = lambda data: {k: v.cuda() for (k,v) in data.items()}
+    optimizer.zero_grad()
     # pdb.set_trace()
+    # torch.cuda.empty_cache()
     for epoch in range(start_epoch, opt.epochs):
         train_dataloader.sampler.set_epoch(epoch)
         for _, data in enumerate(train_dataloader):
             current_iter += 1
-
+            # pdb.set_trace()
             rank, world_size = get_dist_info()
+            data = move_to_gpu(data)
+            torch.cuda.empty_cache()
             with torch.no_grad():
                 #   # Clear cache at the start of each iteration
                 # video = rearrange(data['video'], 'b f c h w -> (b f) c h w')
@@ -349,11 +355,10 @@ def main(cfg_folder: str = './config'):
                 z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
 
-                dec_feat = encoder.backbone(context=data, return_views=True)
+                dec_feat, _ = model_backbone(context=data, return_views=True)
 
-            optimizer.zero_grad()
-            model_sd.zero_grad()
-            encoder.backbone.zero_grad()
+
+
 
             # Use mixed precision
             # with torch.cuda.amp.autocast():
@@ -363,6 +368,9 @@ def main(cfg_folder: str = './config'):
 
             l_pixel.backward()  # Backpropagate the loss
             optimizer.step()
+            optimizer.zero_grad()
+            model_sd.zero_grad()
+            model_backbone.zero_grad()
             torch.cuda.empty_cache()
 
             # if (current_iter + 1) % opt.print_fq == 0:

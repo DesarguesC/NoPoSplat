@@ -634,6 +634,7 @@ class VideoMamba(nn.Module):
         # frame, batch, 3, 3
         self.enc_embed_dim = mamba_params[mamba_choice]['embed_dim'] # mamba中的embed_dim
         self.enc_patch_size = mamba_params[mamba_choice]['patch_size']
+        # local_rank = int(os.getenv('LOCAL_RANK', 0))
         self.intrinsic_encoder = encoder_intrinsic(num_frames, self.enc_embed_dim).cuda()
 
         # TODO: maps to [b, embed_dim, frames, h / patch_size, w / patch_size]
@@ -789,6 +790,7 @@ class VideoMamba(nn.Module):
         assert h == w, f'width unequal to height: h = {h}, w = {w}'
         assert f == f_ and b == b_, (f'videos and intrinsics mismatched at the frame: (f, f_) = {(f, f_)}')
 
+        # pdb.set_trace()
         intrinsic_embed = self.intrinsic_encoder(rearrange(context['intrinsics'], 'b f h w -> b (f h w)'))
         intrinsic_embed = rearrange(intrinsic_embed.reshape((b_, f_, self.enc_embed_dim)), 'b f e -> f b e')
         args_dict = {
