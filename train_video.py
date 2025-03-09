@@ -156,7 +156,7 @@ def main(cfg_folder: str = './config'):
 
     # accelerator = Accelerator()
     accelerator = Accelerator(
-        mixed_precision='fp16',  # Enable automatic mixed precision
+        mixed_precision='bf16',  # Enable automatic mixed precision
         gradient_accumulation_steps=1,  # Adjust if needed
         log_with="wandb",  # If you're using wandb
     )
@@ -168,19 +168,7 @@ def main(cfg_folder: str = './config'):
 
     torch.manual_seed(cfg.seed)
     opt = opt._replace(seed=cfg.seed)
-    # local_rank = int(os.getenv('LOCAL_RANK', 0))
 
-    # distributed setting
-    # init_dist(opt.launcher)
-    # torch.backends.cudnn.benchmark = True
-    # print(f'local_rank: {local_rank}')
-    # torch.cuda.set_device(local_rank)
-    #
-    # print(f"LOCAL_RANK={local_rank}, CUDA_VISIBLE_DEVICES={os.getenv('CUDA_VISIBLE_DEVICES')}")
-    # print(f"Rank {local_rank} is using GPU {torch.cuda.current_device()}")
-
-    # TODO: load data
-    # pdb.set_trace()
     train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame, cut_down_scale=1)
     # Load Model from encoder_videosplat.py
     encoder, _ = get_encoder(cfg.model.encoder, args=opt)
@@ -193,14 +181,6 @@ def main(cfg_folder: str = './config'):
     model_sd.train()
 
     sd_config = encoder.sd_cfg
-    # local_device = torch.device('cuda', local_rank)
-    # encoder.backbone = encoder.backbone.to(local_device)
-    # encoder.adapter_dict['model'][0] = encoder.adapter_dict['model'][0].to(local_device)
-    # encoder.adapter_dict['model'][1] = encoder.adapter_dict['model'][1].to(local_device)
-    # model_sd = encoder.sd_model.to(f'cuda:{local_rank}')
-    # model_sd = accelerator.prepare(model_sd)
-
-    
 
     class ModelWrapper(torch.nn.Module):
         def __init__(self, backbone, adapter_0, adapter_1):
@@ -208,18 +188,7 @@ def main(cfg_folder: str = './config'):
             # self.backbone = backbone
             self.adapter_0 = adapter_0
             self.adapter_1 = adapter_1
-            
-            # Add device verification
-            # self.verify_devices()
-            
-        # def verify_devices(self):
-        #     # Ensure all submodules are on the same device
-        #     backbone_device = next(self.backbone.parameters()).device
-        #     for name, module in [('adapter_0', self.adapter_0), ('adapter_1', self.adapter_1)]:
-        #         module_device = next(module.parameters()).device
-        #         if backbone_device != module_device:
-        #             print(f"Device mismatch: backbone on {backbone_device}, {name} on {module_device}")
-        #             pdb.set_trace()
+
 
         def forward(self, x, item):
             # dec_feat, _ = self.backbone(context=x, return_views=True)
@@ -281,17 +250,20 @@ def main(cfg_folder: str = './config'):
     copy_opt_file(opt.config, experiments_root)
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
-    # pdb.set_trace()
+    move_to_gpu = lambda data: {k: v.cuda() for (k,v) in data.items()}
+    torch.cuda.empty_cache()
+
+    optimizer.zero_grad()
+    model_sd.zero_grad()
+    backbone_model.zero_grad()
+
     for epoch in range(start_epoch, opt.epochs): # TODO: check 'c' shape
         # train_dataloader.sampler.set_epoch(epoch)
         # train
         for _, data in enumerate(train_dataloader): # first check: train_dataset[0]
             # TODO: 这里的data要和context一样的结构
             current_iter += 1
-            optimizer.zero_grad()
-            model_sd.zero_grad()  # ?
-            # for (k,v) in data.items():
-            #     data[k] = data[k].to(f'cuda:{local_rank}')
+            data = move_to_gpu(data)
 
             with torch.no_grad():
                 # video = rearrange(data['video'], 'b f c h w -> (b f) c h w')
@@ -301,6 +273,7 @@ def main(cfg_folder: str = './config'):
                 z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
                 dec_feat, _ = backbone_model(context=data, return_views=True)
+
             # TODO: 这里需要修改
             adapter_features = v2x_generator(dec_feat, data)
             l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
@@ -308,6 +281,10 @@ def main(cfg_folder: str = './config'):
             accelerator.backward(l_pixel)
             optimizer.step()
             lr_scheduler.step()
+            optimizer.zero_grad()
+            model_sd.zero_grad()
+            backbone_model.zero_grad()
+            torch.cuda.empty_cache()
 
             if (current_iter + 1) % opt.print_fq == 0:
                 logger.info(loss_dict)
