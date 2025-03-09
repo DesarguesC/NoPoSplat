@@ -443,6 +443,7 @@ def load_state_dict(model, state_dict, center=True):
 
     del state_dict['head.weight']
     del state_dict['head.bias']
+    torch.cuda.empty_cache()
     msg = model.load_state_dict(state_dict, strict=False)
     print(msg)
 

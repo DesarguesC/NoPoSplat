@@ -24,6 +24,7 @@ class LitEma(nn.Module):
 
     def reset_num_updates(self):
         del self.num_updates
+        torch.cuda.empty_cache()
         self.register_buffer('num_updates', torch.tensor(0, dtype=torch.int))
 
     def forward(self, model):

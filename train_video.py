@@ -325,23 +325,24 @@ def main(cfg_folder: str = './config'):
         start_epoch = resume_state['epoch']
         current_iter = resume_state['iter']
 
-    pdb.set_trace() # TODO: 找到爆显存的行
+    # pdb.set_trace() # TODO: 找到爆显存的行
 
     # copy the yml file to the experiment root
     copy_opt_file(opt.config, experiments_root)
     # training
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
     # pdb.set_trace()
-
-    rank, world_size = get_dist_info()
-    for epoch in range(start_epoch, opt.epochs): # TODO: check 'c' shape
+    for epoch in range(start_epoch, opt.epochs):
         train_dataloader.sampler.set_epoch(epoch)
-        # train
-        for _, data in enumerate(train_dataloader): # first check: train_dataset[0]
-            # TODO: 这里的data要和context一样的结构
+        for _, data in enumerate(train_dataloader):
             current_iter += 1
-            torch.cuda.empty_cache()
+
+            optimizer.zero_grad()
+            model_sd.zero_grad()
+
+            rank, world_size = get_dist_info()
             with torch.no_grad():
+                torch.cuda.empty_cache()  # Clear cache at the start of each iteration
                 # video = rearrange(data['video'], 'b f c h w -> (b f) c h w')
                 c = model_sd.get_learned_conditioning([opt.prompt])
                 c = repeat(c, '1 ... -> b ...', b = (opt.frame * opt.batch_size // world_size))
@@ -349,20 +350,19 @@ def main(cfg_folder: str = './config'):
                 z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
 
-            optimizer.zero_grad()
-            model_sd.zero_grad()
+            # Use mixed precision
+            with torch.cuda.amp.autocast():
+                adapter_features = v2x_generator(data)
+                l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
 
-            torch.cuda.empty_cache()
-            adapter_features = v2x_generator(data)
-            l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
-            # log_gpu_memory(rank, local_rank, interval=5)
 
-            l_pixel.backward()
+            l_pixel.backward()  # Backpropagate the loss
             optimizer.step()
+            torch.cuda.empty_cache()
 
-            if (current_iter + 1) % opt.print_fq == 0:
-                logger.info(loss_dict)
-                logger.info({'iter': current_iter})
+            # if (current_iter + 1) % opt.print_fq == 0:
+            logger.info(loss_dict)
+            logger.info({'iter': current_iter})
 
             if (rank == 0) and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
             # if rank == 0: # TODO: Debug
