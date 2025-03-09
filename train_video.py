@@ -240,6 +240,7 @@ def main(cfg_folder: str = './config'):
     # encoder = EncoderVideoSplat(config)
     sd_config = encoder.sd_cfg
     # encoder: encoder_videosplat.py - class EncoderVideoSplat
+    torch.cuda.empty_cache()
 
     # Replace the previous device check with this more thorough version
     local_device = torch.device('cuda', local_rank)
@@ -257,7 +258,7 @@ def main(cfg_folder: str = './config'):
     class ModelWrapper(torch.nn.Module):
         def __init__(self, backbone, adapter_0, adapter_1):
             super().__init__()
-            self.backbone = backbone
+            # self.backbone = backbone
             self.adapter_0 = adapter_0
             self.adapter_1 = adapter_1
             
@@ -271,10 +272,10 @@ def main(cfg_folder: str = './config'):
                 module_device = next(module.parameters()).device
                 assert backbone_device == module_device, f"Device mismatch: backbone on {backbone_device}, {name} on {module_device}"
         
-        def forward(self, x):
-            dec_feat, _ = self.backbone(context=x, return_views=True)
-            mamba_feat = self.adapter_0(dec_feat)
-            ray_feat = self.adapter_1(rearrange(x['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
+        def forward(self, x, data): # x: dec_feat
+            # dec_feat, _ = self.backbone(context=x, return_views=True)
+            mamba_feat = self.adapter_0(x)
+            ray_feat = self.adapter_1(rearrange(data['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
             
             # Add shape validation
             assert len(mamba_feat) == len(ray_feat), "Feature list length mismatch"
@@ -337,12 +338,9 @@ def main(cfg_folder: str = './config'):
         for _, data in enumerate(train_dataloader):
             current_iter += 1
 
-            optimizer.zero_grad()
-            model_sd.zero_grad()
-
             rank, world_size = get_dist_info()
             with torch.no_grad():
-                torch.cuda.empty_cache()  # Clear cache at the start of each iteration
+                #   # Clear cache at the start of each iteration
                 # video = rearrange(data['video'], 'b f c h w -> (b f) c h w')
                 c = model_sd.get_learned_conditioning([opt.prompt])
                 c = repeat(c, '1 ... -> b ...', b = (opt.frame * opt.batch_size // world_size))
@@ -350,11 +348,17 @@ def main(cfg_folder: str = './config'):
                 z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
 
-            # Use mixed precision
-            with torch.cuda.amp.autocast():
-                adapter_features = v2x_generator(data)
-                l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
+                dec_feat = encoder.backbone(context=data, return_views=True)
 
+            optimizer.zero_grad()
+            model_sd.zero_grad()
+            encoder.backbone.zero_grad()
+
+            # Use mixed precision
+            # with torch.cuda.amp.autocast():
+
+            adapter_features = v2x_generator(dec_feat, data)
+            l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
 
             l_pixel.backward()  # Backpropagate the loss
             optimizer.step()
