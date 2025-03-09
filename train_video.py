@@ -245,10 +245,11 @@ def main(cfg_folder: str = './config'):
     # Replace the previous device check with this more thorough version
     local_device = torch.device('cuda', local_rank)
     # Ensure models are on correct devices before DDP wrapping
-    encoder.backbone = encoder.backbone.to(local_device)
+
     encoder.adapter_dict['model'][0] = encoder.adapter_dict['model'][0].to(local_device)
     encoder.adapter_dict['model'][1] = encoder.adapter_dict['model'][1].to(local_device)
     model_sd = encoder.sd_model.to(f'cuda:{local_rank}')
+    encoder.backbone = encoder.backbone.to(f'cuda:{local_rank}')
 
     encoder.backbone.train()
     encoder.adapter_dict['model'][0].train()
@@ -263,7 +264,7 @@ def main(cfg_folder: str = './config'):
             self.adapter_1 = adapter_1
             
             # Add device verification
-            self.verify_devices()
+            # self.verify_devices()
             
         def verify_devices(self):
             # Ensure all submodules are on the same device

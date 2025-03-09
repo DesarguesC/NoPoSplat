@@ -58,7 +58,7 @@ class AutoencoderKL(pl.LightningModule):
                 if k.startswith(ik):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         self.load_state_dict(sd, strict=False)
         print(f"Restored from {path}")
 

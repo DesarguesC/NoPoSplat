@@ -435,7 +435,7 @@ def load_state_dict(model, state_dict, center=True):
     
     del state_dict['head.weight']
     del state_dict['head.bias']
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
 
     msg = model.load_state_dict(state_dict, strict=False)
     print(msg)
@@ -714,7 +714,7 @@ class VideoMamba(nn.Module):
             raise ValueError(f"Invalid checkpoint format: {weights_path}")
 
         del ckpt_weights
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
     def _decoder(self, feature, position, extra_embed = None):
         # feature: [b, 2 * f * p, e]
@@ -770,7 +770,7 @@ class VideoMamba(nn.Module):
         del final_output[0] # duplicate with final_output[1]
         # final_output[-1] = tuple(map(self.croco_decoder.dec_norm, final_output[-1]))
         # TODO: ↑
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
         last_feature = rearrange(final_output[-1], 'b f p e -> (b f) p e') # TODO: final_outptu[-1] - [(b f) p e] ?
         # [b*f p e] 这里的p是(h/p_size)*(w/p_size)*2, 因为前面拼了intrinsic_embed

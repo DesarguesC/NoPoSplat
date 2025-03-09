@@ -222,7 +222,7 @@ class AsymmetricCroCo(CroCoNet):
         # normalize last output
         del final_output[1]  # duplicate with final_output[0]
 
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         final_output[-1] = tuple(map(self.dec_norm, final_output[-1]))
         return zip(*final_output)
 

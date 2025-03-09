@@ -119,7 +119,7 @@ class FrozenOpenCLIPEmbedder(AbstractEncoder):
         assert layer in self.LAYERS
         model, _, _ = open_clip.create_model_and_transforms(arch, device=torch.device('cpu'), pretrained=version)
         del model.visual
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
         self.model = model
 

@@ -218,7 +218,7 @@ class DDPM(pl.LightningModule):
                 if k.startswith(ik):
                     print("Deleting key {} from state_dict.".format(k))
                     del sd[k]
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         if self.make_it_fit:
             n_params = len([name for name, _ in
                             itertools.chain(self.named_parameters(),
