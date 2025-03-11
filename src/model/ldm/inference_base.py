@@ -305,11 +305,11 @@ def get_latent_adapter(opt, train_mode: bool = True, cond_type: List[ExtraCondit
     if len(adapter['cond_weight']) != len(adapter['model']):
         adapter['cond_weight'] = [1. for i in range(len(adapter['model']))]
     ckpt_path_list = getattr(opt, 'adapter_ckpt_path', [None, None])
-    if not train_mode or len(ckpt_path_list) < len(adapter['model']):
-        adapter['model'] = [
-            adapter['model'][i].load_state_dict(torch.load(ckpt_path_list[i]))
-            for i in range(len(adapter['model']))
-        ]
+    # if not train_mode or len(ckpt_path_list) < len(adapter['model']):
+    #     adapter['model'] = [
+    #         adapter['model'][i].load_state_dict(torch.load(ckpt_path_list[i]))
+    #         for i in range(len(adapter['model']))
+    #     ]
 
     return adapter # dict_keys(['cond_weight', 'model'])
 

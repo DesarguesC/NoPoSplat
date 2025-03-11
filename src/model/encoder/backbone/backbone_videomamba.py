@@ -717,6 +717,20 @@ class VideoMamba(nn.Module):
         del ckpt_weights
         # torch.cuda.empty_cache()
 
+    # if 'video_mamba' in xxx_weights:
+    #       load_encoder_and_decoder(...)
+    def load_encoder_and_decoder(self, ckpt_weights): # only for inference step
+        # ckpt_weights = torch.load(weights_path)
+        if not 'video_mamba' in ckpt_weights:
+            pdb.set_trace()
+        decoder_ckpt = {}
+        for (k, v) in ckpt_weights.items():
+            if k.startswith('video_mamba.backbone.croco_decoder'):
+                ...
+
+        
+
+
     def _decoder(self, feature, position, extra_embed = None):
         # feature: [b, 2 * f * p, e]
         # position: [b, e, f, p1, p2]

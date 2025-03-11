@@ -329,8 +329,6 @@ def main(cfg_folder: str = './config'):
             logger.info({'iter': current_iter})
 
             if (rank == 0) and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
-            # if rank == 0: # TODO: Debug
-                # pdb.set_trace()
                 save_filename = f'v2x_generator_{current_iter + 1}.pth'
                 save_path = os.path.join(experiments_root, 'models', save_filename)
                 save_dict = {}
@@ -340,6 +338,7 @@ def main(cfg_folder: str = './config'):
                 model_name = ['video_mamba', 'feature', 'ray'] # backbone & adapter_0 & adapter_0
                 for i in range(len(state_dict_list)):
                     for key, param in state_dict_list[i].items():
+                        # pdb.set_trace()
                         if key.startswith('module.'):  # remove unnecessary 'module.'
                             key = f'{model_name[0]}.{key[16:]}' if key[7:].startswith('backbone') else \
                                   f'{model_name[1]}.{key[17:]}' if key[7:].startswith('adapter_0') else \
@@ -348,12 +347,12 @@ def main(cfg_folder: str = './config'):
                         save_dict[key] = param.cpu()
                 # pdb.set_trace()
 
-                torch.save(save_dict, save_path)
-                # save state
-                state = {'epoch': epoch, 'iter': current_iter + 1, 'optimizers': optimizer.state_dict()}
-                save_filename = f'{current_iter + 1}.state'
-                save_path = os.path.join(experiments_root, 'training_states', save_filename)
-                torch.save(state, save_path)
+            torch.save(save_dict, save_path)
+            # save state
+            state = {'epoch': epoch, 'iter': current_iter + 1, 'optimizers': optimizer.state_dict()}
+            save_filename = f'{current_iter + 1}.state'
+            save_path = os.path.join(experiments_root, 'training_states', save_filename)
+            torch.save(state, save_path)
 
 
 if __name__ == '__main__':

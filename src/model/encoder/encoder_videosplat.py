@@ -69,8 +69,13 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
         self.sd_opt = make_options(train_mode=args.train_mode)
         self.sd_model, self.sampler, self.sd_cfg = get_sd_models(self.sd_opt, return_cfg=True, debug=False)
+        # with stable-diffusion loaded
+        pdb.set_trace()
         self.adapter_dict = get_latent_adapter(self.sd_opt, train_mode=args.train_mode, cond_type=self.sd_opt.allow_cond, device=self.device)
         # 'model': list 'cond_weight': list
+        if not args.train_mode:
+            ...
+
 
 
         # TODO: params = list(xx.backbone.parameters()) + list(xx.adapter_dict['ray']) + list(xx.adapter_dict['feature'])
