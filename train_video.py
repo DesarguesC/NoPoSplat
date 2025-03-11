@@ -210,7 +210,7 @@ def main(cfg_folder: str = './config'):
     class ModelWrapper(torch.nn.Module):
         def __init__(self, backbone, adapter_0, adapter_1):
             super().__init__()
-            # self.backbone = backbone
+            self.backbone = backbone
             self.adapter_0 = adapter_0
             self.adapter_1 = adapter_1
             
@@ -245,7 +245,7 @@ def main(cfg_folder: str = './config'):
         v2x_wrapper,
         device_ids=[local_rank],
         output_device=local_rank,
-        # find_unused_parameters=True,
+        find_unused_parameters=True,
     )
 
     # optimizer
@@ -306,15 +306,7 @@ def main(cfg_folder: str = './config'):
                 z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
 
-                dec_feat, _ = model_backbone(context=data, return_views=True)
-
-
-
-
-            # Use mixed precision
-            # with torch.cuda.amp.autocast():
-
-            adapter_features = v2x_generator(dec_feat, data)
+            adapter_features = v2x_generator(data)
             l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
 
             l_pixel.backward()  # Backpropagate the loss
