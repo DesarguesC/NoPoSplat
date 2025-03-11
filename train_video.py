@@ -319,15 +319,13 @@ def main(cfg_folder: str = './config'):
 
             l_pixel.backward()  # Backpropagate the loss
             optimizer.step()
+            logger.info({'iter': current_iter, 'cuda memory used': torch.cuda.memory_allocated() // 1024 ** 3})
             optimizer.zero_grad()
             model_sd.zero_grad()
             model_backbone.zero_grad()
             torch.cuda.empty_cache()
-
             # if (current_iter + 1) % opt.print_fq == 0:
             logger.info(loss_dict)
-            logger.info({'iter': current_iter})
-
             if (rank == 0) and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
                 save_filename = f'v2x_generator_{current_iter + 1}.pth'
                 save_path = os.path.join(experiments_root, 'models', save_filename)
@@ -335,7 +333,7 @@ def main(cfg_folder: str = './config'):
                 state_dict_list = [
                     v2x_generator.state_dict()
                 ]
-                model_name = ['video_mamba', 'feature', 'ray'] # backbone & adapter_0 & adapter_0
+                model_name = ['backbone', 'adapter_0', 'adapter_1'] # backbone & adapter_0 & adapter_0
                 for i in range(len(state_dict_list)):
                     for key, param in state_dict_list[i].items():
                         # pdb.set_trace()
@@ -345,14 +343,15 @@ def main(cfg_folder: str = './config'):
                                   f'{model_name[2]}.{key[17:]}' if key[7:].startswith('adapter_1') else \
                                   None
                         save_dict[key] = param.cpu()
-                # pdb.set_trace()
 
-            torch.save(save_dict, save_path)
-            # save state
-            state = {'epoch': epoch, 'iter': current_iter + 1, 'optimizers': optimizer.state_dict()}
-            save_filename = f'{current_iter + 1}.state'
-            save_path = os.path.join(experiments_root, 'training_states', save_filename)
-            torch.save(state, save_path)
+                pdb.set_trace()
+
+                torch.save(save_dict, save_path)
+                # save state
+                state = {'epoch': epoch, 'iter': current_iter + 1, 'optimizers': optimizer.state_dict()}
+                save_filename = f'{current_iter + 1}.state'
+                save_path = os.path.join(experiments_root, 'training_states', save_filename)
+                torch.save(state, save_path)
 
 
 if __name__ == '__main__':
