@@ -159,16 +159,16 @@ def main(cfg_folder: str = './config'):
 
     torch.manual_seed(cfg.seed)
     opt = opt._replace(seed=cfg.seed)
-    local_rank = int(os.getenv('LOCAL_RANK', 0))
+    # local_rank = int(os.getenv('LOCAL_RANK', 0))
 
     # distributed setting
-    init_dist(opt.launcher)
-    torch.backends.cudnn.benchmark = True
-    print(f'local_rank: {local_rank}')
-    torch.cuda.set_device(local_rank)
+    # init_dist(opt.launcher)
+    # torch.backends.cudnn.benchmark = True
+    # print(f'local_rank: {local_rank}')
+    # torch.cuda.set_device(local_rank)
 
-    print(f"LOCAL_RANK={local_rank}, CUDA_VISIBLE_DEVICES={os.getenv('CUDA_VISIBLE_DEVICES')}")
-    print(f"Rank {local_rank} is using GPU {torch.cuda.current_device()}")
+    # print(f"LOCAL_RANK={local_rank}, CUDA_VISIBLE_DEVICES={os.getenv('CUDA_VISIBLE_DEVICES')}")
+    # print(f"Rank {local_rank} is using GPU {torch.cuda.current_device()}")
 
     # TODO: load data
     # pdb.set_trace()
@@ -178,29 +178,37 @@ def main(cfg_folder: str = './config'):
     #     model, optimizer, training_dataloader, scheduler
     # )
 
-    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+    # train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+    # train_dataloader = torch.utils.data.DataLoader(
+    #     train_dataset,
+    #     batch_size=opt.batch_size,
+    #     shuffle=False,
+    #     num_workers=opt.num_workers,
+    #     pin_memory=True,
+    #     sampler=train_sampler,
+    #     drop_last=True,
+    # )
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=opt.batch_size,
-        shuffle=False,
+        shuffle=True,
         num_workers=opt.num_workers,
-        pin_memory=True,
-        sampler=train_sampler,
         drop_last=True,
     )
+
     # Load Model from encoder_videosplat.py
     encoder, _ = get_encoder(cfg.model.encoder, args=opt)
     sd_config = encoder.sd_cfg
     torch.cuda.empty_cache()
 
     # Replace the previous device check with this more thorough version
-    local_device = torch.device('cuda', local_rank)
+    # local_device = torch.device('cuda', local_rank)
     # Ensure models are on correct devices before DDP wrapping
 
-    encoder.adapter_dict['model'][0] = encoder.adapter_dict['model'][0].to(local_device)
-    encoder.adapter_dict['model'][1] = encoder.adapter_dict['model'][1].to(local_device)
-    model_sd = encoder.sd_model.to(f'cuda:{local_rank}')
-    model_backbone = encoder.backbone.to(f'cuda:{local_rank}')
+    encoder.adapter_dict['model'][0] = encoder.adapter_dict['model'][0].cuda()
+    encoder.adapter_dict['model'][1] = encoder.adapter_dict['model'][1].cuda()
+    model_sd = encoder.sd_model.cuda()
+    model_backbone = encoder.backbone.cuda()
 
     encoder.backbone.train()
     encoder.adapter_dict['model'][0].train()
@@ -239,14 +247,14 @@ def main(cfg_folder: str = './config'):
             return features_adapter
     
     # Check and fix device placement
-    v2x_wrapper = ModelWrapper(encoder.backbone, encoder.adapter_dict['model'][0], encoder.adapter_dict['model'][1])
+    v2x_generator = ModelWrapper(encoder.backbone, encoder.adapter_dict['model'][0], encoder.adapter_dict['model'][1])
 
-    v2x_generator = torch.nn.parallel.DistributedDataParallel(
-        v2x_wrapper,
-        device_ids=[local_rank],
-        output_device=local_rank,
-        # find_unused_parameters=True,
-    )
+    # v2x_generator = torch.nn.parallel.DistributedDataParallel(
+    #     v2x_wrapper,
+    #     device_ids=[local_rank],
+    #     output_device=local_rank,
+    #     # find_unused_parameters=True,
+    # )
 
     # optimizer
     # params = itertools.chain(model_video_mamba.parameters(), model_ad_ray.parameters(), model_ad_mamba_feat.parameters())
@@ -290,7 +298,8 @@ def main(cfg_folder: str = './config'):
     # pdb.set_trace()
     # torch.cuda.empty_cache()
     for epoch in range(start_epoch, opt.epochs):
-        train_dataloader.sampler.set_epoch(epoch)
+        # train_dataloader.sampler.set_epoch(epoch)
+        torch.cuda.empty_cache()
         for _, data in enumerate(train_dataloader):
             current_iter += 1
             # pdb.set_trace()
@@ -308,9 +317,6 @@ def main(cfg_folder: str = './config'):
 
                 dec_feat, _ = model_backbone(context=data, return_views=True)
 
-
-
-
             # Use mixed precision
             # with torch.cuda.amp.autocast():
 
@@ -319,12 +325,15 @@ def main(cfg_folder: str = './config'):
 
             l_pixel.backward()  # Backpropagate the loss
             optimizer.step()
+
+            if current_iter == 0 or current_iter == 1 or (current_iter + 1) % opt.print_fq == 0:
+                print(f'CUDA memory remained: {torch.cuda.memory_allocated() // 1024**3}')
+
             optimizer.zero_grad()
             model_sd.zero_grad()
             model_backbone.zero_grad()
             torch.cuda.empty_cache()
 
-            # if (current_iter + 1) % opt.print_fq == 0:
             logger.info(loss_dict)
             logger.info({'iter': current_iter})
 
@@ -340,11 +349,11 @@ def main(cfg_folder: str = './config'):
                 model_name = ['video_mamba', 'feature', 'ray'] # backbone & adapter_0 & adapter_0
                 for i in range(len(state_dict_list)):
                     for key, param in state_dict_list[i].items():
-                        if key.startswith('module.'):  # remove unnecessary 'module.'
-                            key = f'{model_name[0]}.{key[16:]}' if key[7:].startswith('backbone') else \
-                                  f'{model_name[1]}.{key[17:]}' if key[7:].startswith('adapter_0') else \
-                                  f'{model_name[2]}.{key[17:]}' if key[7:].startswith('adapter_1') else \
-                                  None
+                        # if key.startswith('module.'):  # remove unnecessary 'module.'
+                        key = f'{model_name[0]}.{key[16:]}' if key[7:].startswith('backbone') else \
+                              f'{model_name[1]}.{key[17:]}' if key[7:].startswith('adapter_0') else \
+                              f'{model_name[2]}.{key[17:]}' if key[7:].startswith('adapter_1') else \
+                              None
                         save_dict[key] = param.cpu()
                 # pdb.set_trace()
 
