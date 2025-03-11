@@ -729,11 +729,20 @@ class VideoMamba(nn.Module):
         intrinsic_encoder_ckpt = {}
         for (k, v) in ckpt_weights.items():
             if k.startswith('backbone.croco_decoder'):
-                croco_decoder_ckpt[k[22:]] = v
+                croco_decoder_ckpt[k[22+1:]] = v
             elif k.startswith('backbone.mamba_encoder'):
-                mamba_encoder_ckpt[k[22:]] = v
-            elif k.startswith('backbone.intrnisic_encoder'):
-                intrinsic_encoder_ckpt[k[26:]]
+                mamba_encoder_ckpt[k[22+1:]] = v
+            elif k.startswith('backbone.intrinsic_encoder'):
+                intrinsic_encoder_ckpt[k[26+1:]] = v
+            else:
+                raise ValueError('Invalid Keys!')
+        if len(croco_decoder_ckpt) != 0 and len(mamba_encoder_ckpt) != 0 and len(intrinsic_encoder_ckpt) != 0:
+            load_state_dict(self.croco_decoder, croco_decoder_ckpt)
+            load_state_dict(self.mamba_encoder, mamba_encoder_ckpt)
+            load_state_dict(self.intrinsic_encoder, intrinsic_encoder_ckpt)
+        # delete ckpt_weights outside,  after adapters loaded
+
+
         
 
 
@@ -851,8 +860,8 @@ class VideoMamba(nn.Module):
         # TODO: dec1, dec2, shape1, shape2, view1, view2 = self.backbone(context, return_views=True)  # PE & Proj
 
 
-    def load_intrinsics_encoder(self, weights_path: str) -> None:
-        load_state_dict(self.intrinsic_encoder, weights_path)
+    def load_intrinsics_encoder(self, state_dict) -> None:
+        load_state_dict(self.intrinsic_encoder, state_dict)
 
     def save_state_dict(self, path, msg):
         filename = f'intrinsic_encoder_{msg}.pth'

@@ -224,10 +224,10 @@ def main(cfg_folder: str = './config'):
                 module_device = next(module.parameters()).device
                 assert backbone_device == module_device, f"Device mismatch: backbone on {backbone_device}, {name} on {module_device}"
         
-        def forward(self, x, data): # x: dec_feat
-            # dec_feat, _ = self.backbone(context=x, return_views=True)
-            mamba_feat = self.adapter_0(x)
-            ray_feat = self.adapter_1(rearrange(data['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
+        def forward(self, x): # x: dec_feat
+            dec_feat, _ = self.backbone(context=x, return_views=True)
+            mamba_feat = self.adapter_0(dec_feat)
+            ray_feat = self.adapter_1(rearrange(x['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
             
             # Add shape validation
             assert len(mamba_feat) == len(ray_feat), "Feature list length mismatch"
@@ -344,7 +344,7 @@ def main(cfg_folder: str = './config'):
                                   None
                         save_dict[key] = param.cpu()
 
-                pdb.set_trace()
+                # pdb.set_trace()
 
                 torch.save(save_dict, save_path)
                 # save state

@@ -17,6 +17,7 @@ DEFAULT_NEGATIVE_PROMPT = 'longbody, lowres, bad anatomy, bad hands, missing fin
 
 class Options(NamedTuple):
     train_mode: bool = False
+    pretrained_weights: str = '../Tools/v2x_generator.pth'
     outdir: str = './outputs/'
     sd_ckpt: str = '../download/v1-5-pruned.ckpt'
     prompt: str = 'a driving scene with high quality, 4K, highly detailed'

@@ -1,3 +1,4 @@
+import os.path
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Literal, Optional
@@ -55,6 +56,11 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         self.train_mode = args.train_mode
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+        # inference
+        self.frame = args.frame
+        self.cond_weight = args.cond_weight
+        self.batch = args.batch_size
+
         self.pose_free = cfg.pose_free
 
         # if self.pose_free:
@@ -74,8 +80,17 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         self.adapter_dict = get_latent_adapter(self.sd_opt, train_mode=args.train_mode, cond_type=self.sd_opt.allow_cond, device=self.device)
         # 'model': list 'cond_weight': list
         if not args.train_mode:
-            ...
+            pdb.set_trace()
+            assert os.path.exists(args.pretrained_weights)
+            weights = torch.load(args.pretrained_weights)
+            self.backbone.load_encoder_and_decoder(weights)
 
+            ad_0_ckpt = {k[9+1:]:v for (k,v) in weights.items() if k.startswith('adapter_0')}
+            ad_1_ckpt = {k[9+1:]:v for (k,v) in weights.items() if k.startswith('adapter_1')}
+            self.backbone.load_state_dict(self.adapter_dict['model'][0], ad_0_ckpt)
+            self.backbone.load_state_dict(self.adapter_dict['model'][1], ad_1_ckpt)
+
+            del weights
 
 
         # TODO: params = list(xx.backbone.parameters()) + list(xx.adapter_dict['ray']) + list(xx.adapter_dict['feature'])
@@ -151,13 +166,6 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         # Map the probability density to an opacity.
         return 0.5 * (1 - (1 - pdf) ** exponent + pdf ** (1 / exponent))
 
-    # def _downstream_head(self, head_name: str, decout, img_shape, ray_embedding=None):
-    #     # decout: decoded token list
-    #     # B, S, D = decout[-1].shape
-    #     # img_shape = tuple(map(int, img_shape))
-    #     head = getattr(self, f'head_{head_name}')
-    #     return head(decout, img_shape, ray_embedding=ray_embedding)
-    
     # only InstanceMaskedAttention_Head works at ↓
     def forward_one(
         self,
@@ -173,48 +181,35 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
                 param-head:
                     self.gaussian_param_head_sole
         """
+
         pdb.set_trace()
-
-        ray_maps = context['ray'] # 'pos': [b f h w 3], 'dir' [b f h w 3]
-        video = context['video'] # [b 3 f h w]
-        device = video.device
-        b, _, f, h, w = video.shape
-
-        dec_feature, views = self.backbone(context, return_views=True) # PE & Proj
-        """
-            views = {
-                'shape': shape # [batch, frame, channel(=3)]
-                'video': context['video'],  # [batch, frames, height, width]
-                'position': pos,            # [batch, frames, num_patcher, embed_dim]
-                'embeddings': embeddings    # [num_patches, frames, batch, embed_dim]
-            }
-            dec_feature: [N b f p e]
-            p = (h/p_size) * (w/p_size) * 2 | 因为拼了一个intrinsic_embed
-        """
-
-        video = views['video'] # [b c f h w] | c=3
-        shape = views['shape'] # [b*f, 2] | 2: (H,W)
-        # allow_cond = list(self.sd_opt.allow_cond)
-        cond_weight = list(self.sd_opt.cond_weight)
-        # input_list = [ray_maps, dec_feature]
-        self.sd_opt.H, self.sd_opt.W = shape[0], shape[1]
-
         with torch.cuda.amp.autocast(enabled=False):
             # 原来noposplat的cross-attention思路是用第0帧查询后续所有帧
-            ... # ldm
             # 在adapter forward中做'n b f p e -> b f (p n) e'
-            feature_dec = self.adapter_list[0](ray_maps['pos'], dec_feature)
-            feature_ray = self.adapter_list[1](ray_maps['dir'], dec_feature) # 也可以直接把dir做encode之后拼到sd的backbone上
+            # feature_dec = self.adapter_list[0](ray_maps['pos'], dec_feature)
+            # feature_ray = self.adapter_list[1](ray_maps['dir'], dec_feature) # 也可以直接把dir做encode之后拼到sd的backbone上
+            #
+            # adapter_feature = [feature_dec, feature_ray] # List[list]
+            # L = len(adapter_feature[0])
+            # concat_feat = [
+            #     cond_weight[0] * adapter_feature[0][i] + cond_weight[1] * adapter_feature[1][i]
+            #         for i in range(L)
+            # ]
+            # # b = 1 when inference, b <- b * f
+            # concat_feat = [u.squeeze(0) for u in concat_feat]
 
-            adapter_feature = [feature_dec, feature_ray] # List[list]
-            L = len(adapter_feature[0])
-            concat_feat = [
-                cond_weight[0] * adapter_feature[0][i] + cond_weight[1] * adapter_feature[1][i]
-                    for i in range(L)
+            dec_feat, _ = self.backbone(context=context, return_views=True)
+            mamba_feat = self.adapter_dict['model'][0](dec_feat)
+            ray_feat = self.adapter_dict['model'][1](rearrange(context['ray'], 'b (c f) h w -> (b f) c h w', f=self.frame))
+
+            # Add shape validation
+            assert len(mamba_feat) == len(ray_feat), "Feature list length mismatch"
+            features_adapter = [
+                self.cond_weight[0] * mamba_feat[i] + self.cond_weight[1] * ray_feat[i]
+                for i in range(len(mamba_feat))
             ]
-            # b = 1 when inference, b <- b * f
-            concat_feat = [u.squeeze(0) for u in concat_feat]
-            x_samples = diffusion_inference(self.sd_opt, self.sd_model, concat_feat, batch_size=video.shape[0]*video.shape[1]) # [b f c h w]
+
+            x_samples = diffusion_inference(self.sd_opt, self.sd_model, features_adapter, batch_size=self.batch * self.frame) # [b f c h w]
 
         return x_samples
 
