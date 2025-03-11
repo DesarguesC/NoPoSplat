@@ -146,52 +146,6 @@ def read_config_folder(config_path: Path) -> OmegaConf:
         raise ValueError(f"{config_path} 不是一个有效的文件夹路径")
 
 
-def log_gpu_memory(rank, local_rank, interval=5):
-    """
-    定期记录所有GPU的显存占用情况（仅在rank 0汇总输出）
-
-    Args:
-        rank (int): 全局进程编号
-        local_rank (int): 当前节点的GPU编号
-        interval (int): 监控间隔（分钟）
-    """
-    # 确保只在rank 0初始化计时器
-    if rank == 0:
-        last_log_time = datetime.now()
-
-    def _log():
-        nonlocal last_log_time
-        # 仅在rank 0触发时间判断
-        if rank == 0:
-            current_time = datetime.now()
-            if (current_time - last_log_time).seconds < interval * 60:
-                return False
-            last_log_time = current_time
-            return True
-        return False
-
-    if _log():
-        # 获取当前进程的显存信息（单位：MB）
-        current_mem = torch.cuda.memory_allocated(local_rank) / 1024 ** 2
-        max_mem = torch.cuda.max_memory_allocated(local_rank) / 1024 ** 2
-
-        # 收集所有进程的数据
-        world_size = dist.get_world_size()
-        gather_list = [torch.zeros(2, dtype=torch.float32).to(local_rank) for _ in range(world_size)]  # [current, max]
-        tensor = torch.tensor([current_mem, max_mem], dtype=torch.float32).to(local_rank)
-        dist.all_gather(gather_list, tensor)
-
-        # 仅在rank 0打印
-        if rank == 0:
-            mem_info = []
-            for i, data in enumerate(gather_list):
-                mem_info.append(f"GPU {i}: Current={data[0]:.2f}MB, Max={data[1]:.2f}MB")
-            print("\n\n\n===== GPU Memory Usage =====")
-            print("\n".join(mem_info))
-            print("===========================\n\n\n")
-
-        # 重置最大显存统计（可选）
-        # torch.cuda.reset_max_memory_allocated(local_rank)
 
 def main(cfg_folder: str = './config'):
     # parser = argparse.ArgumentParser()
@@ -236,10 +190,7 @@ def main(cfg_folder: str = './config'):
     )
     # Load Model from encoder_videosplat.py
     encoder, _ = get_encoder(cfg.model.encoder, args=opt)
-    # from .model.encoder.encoder_videosplat import EncoderVideoSplat
-    # encoder = EncoderVideoSplat(config)
     sd_config = encoder.sd_cfg
-    # encoder: encoder_videosplat.py - class EncoderVideoSplat
     torch.cuda.empty_cache()
 
     # Replace the previous device check with this more thorough version
