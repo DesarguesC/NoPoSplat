@@ -185,15 +185,15 @@ def main(cfg_folder: str = './config'):
     class ModelWrapper(torch.nn.Module):
         def __init__(self, backbone, adapter_0, adapter_1):
             super().__init__()
-            # self.backbone = backbone
+            self.backbone = backbone
             self.adapter_0 = adapter_0
             self.adapter_1 = adapter_1
 
 
-        def forward(self, x, item):
-            # dec_feat, _ = self.backbone(context=x, return_views=True)
-            mamba_feat = self.adapter_0(x)
-            ray_feat = self.adapter_1(rearrange(item['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
+        def forward(self, x):
+            dec_feat, _ = self.backbone(context=x, return_views=True)
+            mamba_feat = self.adapter_0(dec_feat)
+            ray_feat = self.adapter_1(rearrange(x['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
             
             # Add shape validation
             assert len(mamba_feat) == len(ray_feat), "Feature list length mismatch"
@@ -249,14 +249,14 @@ def main(cfg_folder: str = './config'):
     # copy the yml file to the experiment root
     copy_opt_file(opt.config, experiments_root)
     # training
-    logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
+    logger.info(f'Start training from epoch: [{start_epoch} | {opt.epochs}], iter: {current_iter}, current rank memory use: {torch.cuda.memory_allocated() // 1024**3}')
     move_to_gpu = lambda data: {k: v.cuda() for (k,v) in data.items()}
     torch.cuda.empty_cache()
 
     optimizer.zero_grad()
     model_sd.zero_grad()
     backbone_model.zero_grad()
-
+    pdb.set_trace()
     for epoch in range(start_epoch, opt.epochs): # TODO: check 'c' shape
         # train_dataloader.sampler.set_epoch(epoch)
         # train
@@ -272,10 +272,9 @@ def main(cfg_folder: str = './config'):
                 vehicle = rearrange(data['vehicle'], 'b f c h w -> (b f) c h w')
                 z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
-                dec_feat, _ = backbone_model(context=data, return_views=True)
+                # dec_feat, _ = backbone_model(context=data, return_views=True)
 
-            # TODO: 这里需要修改
-            adapter_features = v2x_generator(dec_feat, data)
+            adapter_features = v2x_generator(data)
             l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
 
             accelerator.backward(l_pixel)
@@ -288,26 +287,32 @@ def main(cfg_folder: str = './config'):
 
             if (current_iter + 1) % opt.print_fq == 0:
                 logger.info(loss_dict)
+                logger.info({
+                    'epoch': f'[{start_epoch} | {opt.epochs}]',
+                    'iter': current_iter,
+                    'current rank memory used': torch.cuda.memory_allocated() // 1024**3
+                })
 
             # save checkpoint
             
             if accelerator.is_main_process and ((current_iter + 1) % sd_config['training']['save_freq'] == 0):
             # if rank == 0: # TODO: Debug
-            #     pdb.set_trace()
+                pdb.set_trace()
                 save_filename = f'v2x_generator_{current_iter + 1}.pth'
                 save_path = os.path.join(experiments_root, 'models', save_filename)
                 save_dict = {}
                 state_dict_list = [
                     v2x_generator.state_dict()
                 ]
-                model_name = ['video_mamba', 'feature', 'ray'] # backbone & adapter_0 & adapter_0
+                model_name = ['backbone', 'adapter_0', 'adapter_1']  # backbone & adapter_0 & adapter_0
                 for i in range(len(state_dict_list)):
                     for key, param in state_dict_list[i].items():
-                        if key.startswith('module.'):  # remove unnecessary 'module.'
+                        # pdb.set_trace()
+                        if key.startswith('module.'):  # remove unnecessary 'module.' ?? accelerator ?
                             key = f'{model_name[0]}.{key[16:]}' if key[7:].startswith('backbone') else \
-                                  f'{model_name[1]}.{key[17:]}' if key[7:].startswith('adapter_0') else \
-                                  f'{model_name[2]}.{key[17:]}' if key[7:].startswith('adapter_1') else \
-                                  None
+                                f'{model_name[1]}.{key[17:]}' if key[7:].startswith('adapter_0') else \
+                                    f'{model_name[2]}.{key[17:]}' if key[7:].startswith('adapter_1') else \
+                                        None
                         save_dict[key] = param.cpu()
                 # pdb.set_trace()
                 torch.save(save_dict, save_path)
