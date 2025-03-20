@@ -148,9 +148,6 @@ def read_config_folder(config_path: Path) -> OmegaConf:
 
 
 def main(cfg_folder: str = './config'):
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("--local_rank", type=int, default=int(os.getenv('LOCAL_RANK', 0)))
-    # args = parser.parse_args()
 
     opt = make_options(train_mode = False)
     cfg = load_yaml_files_recursively(cfg_folder)
@@ -159,29 +156,19 @@ def main(cfg_folder: str = './config'):
 
     torch.manual_seed(cfg.seed)
     opt = opt._replace(seed=cfg.seed)
-    local_rank = int(os.getenv('LOCAL_RANK', 0))
-
-    # distributed setting
-    init_dist(opt.launcher)
-    torch.backends.cudnn.benchmark = True
-    print(f'local_rank: {local_rank}')
-    torch.cuda.set_device(local_rank)
-
-    print(f"LOCAL_RANK={local_rank}, CUDA_VISIBLE_DEVICES={os.getenv('CUDA_VISIBLE_DEVICES')}")
-    print(f"Rank {local_rank} is using GPU {torch.cuda.current_device()}")
+    # pdb.set_trace()
 
     # TODO: load data
     # pdb.set_trace()
     inf_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame, cut_down_scale=1)
     # Load Model from encoder_videosplat.py
     encoder, _ = get_encoder(cfg.model.encoder, args=opt)
-    sd_config = encoder.sd_cfg
     torch.cuda.empty_cache()
 
     encoder.adapter_dict['model'][0] = encoder.adapter_dict['model'][0].cuda()
     encoder.adapter_dict['model'][1] = encoder.adapter_dict['model'][1].cuda()
     encoder.sd_model = encoder.sd_model.cuda()
-    model_backbone = encoder.backbone.cuda()
+    encoder.backbone = encoder.backbone.cuda()
 
     encoder.backbone.eval()
     encoder.adapter_dict['model'][0].eval()

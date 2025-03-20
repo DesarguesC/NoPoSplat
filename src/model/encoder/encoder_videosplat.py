@@ -59,7 +59,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         # inference
         self.frame = args.frame
         self.cond_weight = args.cond_weight
-        self.batch = args.batch_size
+        self.batch = getattr(args, 'batch_size', None)
 
         self.pose_free = cfg.pose_free
 
@@ -76,19 +76,17 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         self.sd_opt = make_options(train_mode=args.train_mode)
         self.sd_model, self.sampler, self.sd_cfg = get_sd_models(self.sd_opt, return_cfg=True, debug=False)
         # with stable-diffusion loaded
-        pdb.set_trace()
+        # pdb.set_trace()
         self.adapter_dict = get_latent_adapter(self.sd_opt, train_mode=args.train_mode, cond_type=self.sd_opt.allow_cond, device=self.device)
         # 'model': list 'cond_weight': list
         if not args.train_mode:
             pdb.set_trace()
             assert os.path.exists(args.pretrained_weights)
             weights = torch.load(args.pretrained_weights)
-            self.backbone.load_encoder_and_decoder(weights)
-
-            ad_0_ckpt = {k[9+1:]:v for (k,v) in weights.items() if k.startswith('adapter_0')}
-            ad_1_ckpt = {k[9+1:]:v for (k,v) in weights.items() if k.startswith('adapter_1')}
-            self.backbone.load_state_dict(self.adapter_dict['model'][0], ad_0_ckpt)
-            self.backbone.load_state_dict(self.adapter_dict['model'][1], ad_1_ckpt)
+            ad_0_ckpt, ad_1_ckpt = self.backbone.load_encoder_and_decoder(weights)
+            pdb.set_trace()
+            self.adapter_dict['model'][0].load_state_dict(ad_0_ckpt, strict=False)
+            self.adapter_dict['model'][1].load_state_dict(ad_1_ckpt, strict=False)
 
             del weights
 

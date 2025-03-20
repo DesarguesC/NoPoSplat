@@ -432,9 +432,14 @@ def load_state_dict(model, state_dict, center=True):
             print(f'Inflate: {k}, {state_dict[k].shape} => {state_dict_3d[k].shape}')
             time_dim = state_dict_3d[k].shape[2]
             state_dict[k] = inflate_weight(state_dict[k], time_dim, center=center)
-    
-    del state_dict['head.weight']
-    del state_dict['head.bias']
+
+    pdb.set_trace()
+
+    # if 'head.weight' in state_dict.keys():
+    #     del state_dict['head.weight']
+    # if 'head.bias' in state_dict.keys():
+    #     del state_dict['head.bias']
+
     # torch.cuda.empty_cache()
 
     msg = model.load_state_dict(state_dict, strict=False)
@@ -720,13 +725,12 @@ class VideoMamba(nn.Module):
     # xxx_weights: backbone..., adapter_0..., adapter_1...
     #       load_encoder_and_decoder(...)
     def load_encoder_and_decoder(self, ckpt_weights): # only for inference step
-        # ckpt_weights = torch.load(weights_path)
-        # if not 'backbone' in ckpt_weights:
-        #     pdb.set_trace()
-        pdb.set_trace()
         croco_decoder_ckpt = {}
         mamba_encoder_ckpt = {}
         intrinsic_encoder_ckpt = {}
+        adapter_0_ckpt = {}
+        adapter_1_ckpt = {}
+        pdb.set_trace()
         for (k, v) in ckpt_weights.items():
             if k.startswith('backbone.croco_decoder'):
                 croco_decoder_ckpt[k[22+1:]] = v
@@ -734,14 +738,21 @@ class VideoMamba(nn.Module):
                 mamba_encoder_ckpt[k[22+1:]] = v
             elif k.startswith('backbone.intrinsic_encoder'):
                 intrinsic_encoder_ckpt[k[26+1:]] = v
+            elif k.startswith('adapter_0'):
+                adapter_0_ckpt[k[9+1:]] = v
+            elif k.startswith('adapter_1'):
+                adapter_1_ckpt[k[9+1:]] = v
             else:
-                raise ValueError('Invalid Keys!')
+                continue
+                # raise ValueError('Invalid Keys!')
+        pdb.set_trace()
         if len(croco_decoder_ckpt) != 0 and len(mamba_encoder_ckpt) != 0 and len(intrinsic_encoder_ckpt) != 0:
             load_state_dict(self.croco_decoder, croco_decoder_ckpt)
             load_state_dict(self.mamba_encoder, mamba_encoder_ckpt)
             load_state_dict(self.intrinsic_encoder, intrinsic_encoder_ckpt)
         # delete ckpt_weights outside,  after adapters loaded
 
+        return adapter_0_ckpt, adapter_1_ckpt
 
         
 
@@ -814,12 +825,16 @@ class VideoMamba(nn.Module):
                 symmetrize_batch=False, # False
                 return_views=False, # True
                 ):
+        pdb.set_trace()
+        if len(context['video']) < 5:
+            context = {k: v.unsqueeze(0) for (k,v) in context.items()}
+
         b, _, f, h, w = context['video'].shape
         b_, f_, h_, w_ = context['intrinsics'].shape
         assert h == w, f'width unequal to height: h = {h}, w = {w}'
         assert f == f_ and b == b_, (f'videos and intrinsics mismatched at the frame: (f, f_) = {(f, f_)}')
 
-        # pdb.set_trace()
+        pdb.set_trace()
         intrinsic_embed = self.intrinsic_encoder(rearrange(context['intrinsics'], 'b f h w -> b (f h w)'))
         intrinsic_embed = rearrange(intrinsic_embed.reshape((b_, f_, self.enc_embed_dim)), 'b f e -> f b e')
         args_dict = {

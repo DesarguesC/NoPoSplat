@@ -25,7 +25,6 @@ class Options(NamedTuple):
     cond_path: str = None
     sampler: str = 'plms'
     steps: int = 50
-    device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
     vae_ckpt: str = None
     adapter_ckpt_path: List[str] = [None, None]
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-inference.yaml'
@@ -39,6 +38,16 @@ class Options(NamedTuple):
     seed: int = 42
     cond_weight: List[float] = [1., 1.] # TODO: as dynamic params in training procedure ?
     allow_cond: List[ExtraCondition] = [ExtraCondition.feature, ExtraCondition.ray]
+
+    # 'base'
+    dec_embed_dim: int = 768
+    dec_depth: int = 12
+    dec_num_heads: int = 16
+    mlp_ratio: int = 4
+    norm_im2_in_dec: bool = True
+    pos_embed: str = 'cosine'
+    decoder_weights_path: str = './pretrained_weights/mixRe10kDl3dv.ckpt'
+    device: str = 'cuda'  # for parallel, automatically locate
 
 class Train_Options(Options):
     train_mode: bool = True
@@ -63,16 +72,7 @@ class Train_Options(Options):
     local_rank: int = 0
     launcher: str = 'pytorch'
 
-    # 'base'
-    mamba_size: str = 'base'
-    dec_embed_dim: int = 768
-    dec_depth: int = 12
-    dec_num_heads: int = 16
-    mlp_ratio: int = 4
-    norm_im2_in_dec: bool = True
-    pos_embed: str = 'cosine'
-    decoder_weights_path: str = './pretrained_weights/mixRe10kDl3dv.ckpt'
-    device: str = 'cuda' # for parallel, automatically locate
+
 """
 mamba_params = {
     'tiny':     {'patch_size': 16, 'embed_dim': 192, 'depth': 24},
