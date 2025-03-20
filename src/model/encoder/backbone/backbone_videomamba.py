@@ -423,7 +423,7 @@ def inflate_weight(weight_2d, time_dim, center=True):
     return weight_3d
 def load_state_dict(model, state_dict, center=True):
     state_dict_3d = model.state_dict()
-    pdb.set_trace()
+    # pdb.set_trace()
     for k in state_dict.keys(): # 应该可以直接额外加，这里没有参数自动不填充新加的
         if k in state_dict_3d.keys() and state_dict[k].shape != state_dict_3d[k].shape:
             if len(state_dict_3d[k].shape) <= 3:
@@ -433,14 +433,10 @@ def load_state_dict(model, state_dict, center=True):
             time_dim = state_dict_3d[k].shape[2]
             state_dict[k] = inflate_weight(state_dict[k], time_dim, center=center)
 
-    pdb.set_trace()
-
     # if 'head.weight' in state_dict.keys():
     #     del state_dict['head.weight']
     # if 'head.bias' in state_dict.keys():
     #     del state_dict['head.bias']
-
-    # torch.cuda.empty_cache()
 
     msg = model.load_state_dict(state_dict, strict=False)
     print(msg)
@@ -743,7 +739,7 @@ class VideoMamba(nn.Module):
             elif k.startswith('adapter_1'):
                 adapter_1_ckpt[k[9+1:]] = v
             else:
-                continue
+                print(f'invalid key: {k}')
                 # raise ValueError('Invalid Keys!')
         pdb.set_trace()
         if len(croco_decoder_ckpt) != 0 and len(mamba_encoder_ckpt) != 0 and len(intrinsic_encoder_ckpt) != 0:

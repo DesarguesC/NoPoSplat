@@ -79,12 +79,12 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         # pdb.set_trace()
         self.adapter_dict = get_latent_adapter(self.sd_opt, train_mode=args.train_mode, cond_type=self.sd_opt.allow_cond, device=self.device)
         # 'model': list 'cond_weight': list
+        # pdb.set_trace()
         if not args.train_mode:
-            pdb.set_trace()
             assert os.path.exists(args.pretrained_weights)
             weights = torch.load(args.pretrained_weights)
             ad_0_ckpt, ad_1_ckpt = self.backbone.load_encoder_and_decoder(weights)
-            pdb.set_trace()
+            # pdb.set_trace()
             self.adapter_dict['model'][0].load_state_dict(ad_0_ckpt, strict=False)
             self.adapter_dict['model'][1].load_state_dict(ad_1_ckpt, strict=False)
 
@@ -198,7 +198,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
             dec_feat, _ = self.backbone(context=context, return_views=True)
             mamba_feat = self.adapter_dict['model'][0](dec_feat)
-            ray_feat = self.adapter_dict['model'][1](rearrange(context['ray'], 'b (c f) h w -> (b f) c h w', f=self.frame))
+            ray_feat = self.adapter_dict['model'][1](rearrange(context['ray'], '(u c) h w -> u c h w', c=5)) # '(b c f) h w -> (b f) c h w'
 
             # Add shape validation
             assert len(mamba_feat) == len(ray_feat), "Feature list length mismatch"

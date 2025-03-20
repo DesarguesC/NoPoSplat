@@ -163,7 +163,7 @@ def main(cfg_folder: str = './config'):
     inf_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame, cut_down_scale=1)
     # Load Model from encoder_videosplat.py
     encoder, _ = get_encoder(cfg.model.encoder, args=opt)
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
 
     encoder.adapter_dict['model'][0] = encoder.adapter_dict['model'][0].cuda()
     encoder.adapter_dict['model'][1] = encoder.adapter_dict['model'][1].cuda()
@@ -175,8 +175,12 @@ def main(cfg_folder: str = './config'):
     encoder.adapter_dict['model'][1].eval()
     encoder.sd_model.eval()
 
-    pdb.set_trace()
-    output = encoder(inf_dataset[0])
+    pdb.set_trace() # prev: all done
+    A = {}
+    for (k,v) in inf_dataset[0].items():
+        A[k] = v.cuda()
+    # inf_dataset[0] = {k:v.cuda() for (k,v) in inf_dataset[0].items()}
+    output = encoder(A)
     pdb.set_trace()
     print(f'output.shape = {output.shape}')
 
