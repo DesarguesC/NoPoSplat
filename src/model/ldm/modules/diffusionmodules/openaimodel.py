@@ -78,8 +78,8 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
     A sequential module that passes timestep embeddings to the children that
     support it as an extra input.
     """
-
     def forward(self, x, emb, context=None):
+
         for layer in self:
             if isinstance(layer, TimestepBlock):
                 x = layer(x, emb)
@@ -769,8 +769,6 @@ class UNetModel(nn.Module):
         :param y: an [N] Tensor of labels, if class-conditional.
         :return: an [N x C x ...] Tensor of outputs.
         """
-        # print('x.shape = ', x.shape)
-
         assert (y is not None) == (
             self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
@@ -782,18 +780,15 @@ class UNetModel(nn.Module):
             assert y.shape[0] == x.shape[0]
             emb = emb + self.label_emb(y)
 
-        h = x.type(self.dtype)
+        h = x.type(self.dtype) # torch.float32
 
         if append_to_context is not None:
             context = torch.cat([context, append_to_context], dim=1)
-        # pdb.set_trace()
         adapter_idx = 0
         for id, module in enumerate(self.input_blocks):
-            # pdb.set_trace()
             h = module(h, emb, context)
             if ((id+1)%3 == 0) and features_adapter is not None:
                 # pdb.set_trace()
-                # assert h.shape == features_adapter[adapter_idx].shape, 'h.shape={0}, features_adapter.shape={1}'.format(h.shape, features_adapter[adapter_idx].shape)
                 if h.shape == features_adapter[adapter_idx].shape:
                     h = h + features_adapter[adapter_idx]
                 # inject features gained from adapters into convolution layer in u-net
@@ -808,7 +803,6 @@ class UNetModel(nn.Module):
         """
         if features_adapter is not None:
             assert len(features_adapter)==adapter_idx, 'Wrong features_adapter'
-        # pdb.set_trace()
         h = self.middle_block(h, emb, context) # check the shape of 'h' in hs list
 
         for module in self.output_blocks:

@@ -5,6 +5,7 @@ import numpy as np
 from tqdm import tqdm
 from ...modules.diffusionmodules.util import make_ddim_sampling_parameters, make_ddim_timesteps, noise_like
 
+import pdb
 
 class PLMSSampler(object):
     def __init__(self, model, schedule="linear", **kwargs):
@@ -85,7 +86,6 @@ class PLMSSampler(object):
                 use_model -> the embed model: e.g. keypose, openpose, segmentation, sketch
         """
 
-        loss_mode = kwargs['loss_mode'] if 'loss_mode' in kwargs else False
 
         if conditioning is not None:
             if isinstance(conditioning, dict):
@@ -100,8 +100,7 @@ class PLMSSampler(object):
         C, H, W = shape
         size = (batch_size, C, H, W)
         print(f'Data shape for PLMS sampling is {size}\n')
-
-        output = self.plms_sampling(conditioning, size,
+        samples, intermediates = self.plms_sampling(conditioning, size,
                                                     callback=callback,
                                                     img_callback=img_callback,
                                                     quantize_denoised=quantize_x0,
@@ -117,29 +116,11 @@ class PLMSSampler(object):
                                                     unconditional_conditioning=unconditional_conditioning,
                                                     features_adapter=features_adapter,
                                                     cond_tau=cond_tau,
-                                                    is_train=loss_mode,
-                                                    # model=use_model,
                                                     use_original_steps=False
                                                     )
 
-        # outputs: (img, intermediates) if not is_train else (img, intermediates, img_list)
-        # is_train -> loss_mode
+        return samples, intermediates
 
-        if loss_mode:
-            samples, intermediates = output
-        else:
-            samples, intermediates, samples_list = output
-
-        use_original_steps = kwargs['use_original_steps'] if 'use_original_steps' in kwargs else False
-        alphas = self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
-        alphas_prev = self.model.alphas_cumprod_prev if use_original_steps else self.ddim_alphas_prev
-        sqrt_one_minus_alphas = self.model.sqrt_one_minus_alphas_cumprod if use_original_steps else self.ddim_sqrt_one_minus_alphas
-        sigmas = self.model.ddim_sigmas_for_original_num_steps if use_original_steps else self.ddim_sigmas
-
-        ratios = {'alphas': alphas, 'alphas_prev': alphas_prev, 'sqrt_one_minus_alphas': sqrt_one_minus_alphas, 'sigmas': sigmas}
-        # to calculate the expectation
-
-        return samples, intermediates, samples_list if loss_mode else None
 
     @torch.no_grad()
     def plms_sampling(self, cond, shape,
@@ -150,14 +131,11 @@ class PLMSSampler(object):
                       unconditional_guidance_scale=1., unconditional_conditioning=None, features_adapter=None,
                       cond_tau=0.4, **kwargs):
 
-        is_train = kwargs['is_train'] if 'is_train' in kwargs else False
-        model = kwargs['model'] if 'model' in kwargs else None
-        assert is_train and model is not None or not is_train and model is None, 'Fatal: Invalid inputs of loss_mode and use_model.'
-
         device = self.model.betas.device
         b = shape[0]
+
         if x_T is None:
-            img = torch.randn(shape, device=device)
+            img = torch.randn(shape, device=device, dtype=torch.float32)
         else:
             img = x_T
         if timesteps is None:
@@ -173,13 +151,11 @@ class PLMSSampler(object):
 
         iterator = tqdm(time_range, desc='PLMS Sampler', total=total_steps)
         old_eps = []
-        if is_train:
-            img_list = []
 
         for i, step in enumerate(iterator):
             index = total_steps - i - 1
-            ts = torch.full((b,), step, device=device, dtype=torch.long)
-            ts_next = torch.full((b,), time_range[min(i + 1, len(time_range) - 1)], device=device, dtype=torch.long)
+            ts = torch.full((b,), step, device=device, dtype=torch.float32)
+            ts_next = torch.full((b,), time_range[min(i + 1, len(time_range) - 1)], device=device, dtype=torch.float32)
 
             if mask is not None:  # and index>=10:
                 assert x0 is not None
@@ -200,8 +176,6 @@ class PLMSSampler(object):
             img, pred_x0, e_t = outs
             # {img: x_prev, pred_x0: pred_x0, e_t: e_t}
             old_eps.append(e_t)
-            if is_train:
-                img_list.append(img)
             if len(old_eps) >= 4:
                 old_eps.pop(0)
             if callback: callback(i)
@@ -211,7 +185,7 @@ class PLMSSampler(object):
                 intermediates['x_inter'].append(img)
                 intermediates['pred_x0'].append(pred_x0)
 
-        return img, intermediates, img_list if is_train else None
+        return img, intermediates
 
     @torch.no_grad()
     def p_sample_plms(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
@@ -235,6 +209,7 @@ class PLMSSampler(object):
                 e_t = score_corrector.modify_score(self.model, e_t, x, t, c, **corrector_kwargs)
 
             return e_t
+
 
         alphas = self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
         alphas_prev = self.model.alphas_cumprod_prev if use_original_steps else self.ddim_alphas_prev

@@ -175,11 +175,10 @@ def main(cfg_folder: str = './config'):
     encoder.adapter_dict['model'][1].eval()
     encoder.sd_model.eval()
 
-    pdb.set_trace() # prev: all done
     A = {}
     for (k,v) in inf_dataset[0].items():
-        A[k] = v.cuda()
-    # inf_dataset[0] = {k:v.cuda() for (k,v) in inf_dataset[0].items()}
+        A[k] = v.to('cuda')
+
     output = encoder(A)
     pdb.set_trace()
     print(f'output.shape = {output.shape}')

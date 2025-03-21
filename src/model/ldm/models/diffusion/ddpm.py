@@ -1298,9 +1298,6 @@ class DiffusionWrapper(pl.LightningModule):
             out = self.diffusion_model(xc, t, **kwargs)
         elif self.conditioning_key == 'crossattn':
             cc = torch.cat(c_crossattn, 1)
-            
-            # print('ddpm: x.shape = ', x.shape)     # amend
-            
             out = self.diffusion_model(x, t, context=cc, **kwargs)
         elif self.conditioning_key == 'hybrid':
             xc = torch.cat([x] + c_concat, dim=1)

@@ -38,7 +38,7 @@ class Options(NamedTuple):
     seed: int = 42
     cond_weight: List[float] = [1., 1.] # TODO: as dynamic params in training procedure ?
     allow_cond: List[ExtraCondition] = [ExtraCondition.feature, ExtraCondition.ray]
-
+    cond_tau: float = 1.
     # 'base'
     dec_embed_dim: int = 768
     dec_depth: int = 12
@@ -322,18 +322,22 @@ def diffusion_inference(opt, model, sampler, adapter_features, batch_size=1, app
         uc = model.get_learned_conditioning([opt.neg_prompt])
     else:
         uc = None
+
     pdb.set_trace()
     c, uc = fix_cond_shapes(model, c, uc) # batch size of c ?
+
+    c = torch.cat([c] * batch_size, 0)
+    uc = torch.cat([uc] * batch_size, 0)
 
     if not hasattr(opt, 'H'):
         opt.H = 256
         opt.W = 256
-    shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
+    shape = [batch_size, opt.C, opt.H // opt.f, opt.W // opt.f]
 
     samples_latents, _ = sampler.sample(
         S=opt.steps,
         conditioning=c,
-        batch_size=batch_size,
+        batch_size=batch_size, # input: batch_size = self.batch * opt.frame
         shape=shape,
         verbose=False,
         unconditional_guidance_scale=opt.scale,
@@ -343,7 +347,7 @@ def diffusion_inference(opt, model, sampler, adapter_features, batch_size=1, app
         append_to_context=append_to_context,
         cond_tau=opt.cond_tau,
     )
-
+    pdb.set_trace()
     x_samples = model.decode_first_stage(samples_latents)
     x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
 
@@ -351,59 +355,3 @@ def diffusion_inference(opt, model, sampler, adapter_features, batch_size=1, app
 
 
 
-
-
-def train_inference(opt, c, model, sampler, adapter_features, cond_model=None, loss_mode=True, append_to_context=None, *kwargs):
-
-    """
-        adapter_features: {
-            "mambda": {"dec_feat": ..., "videos": ..., "shapes": ...},
-            "ray": <ray-map> # shaped: [b ? ? ?],
-        }
-    """
-
-    # get text embedding
-    if opt.scale != 1.0:
-        uc = model.get_learned_conditioning([DEFAULT_NEGATIVE_PROMPT])
-    else:
-        uc = None
-    c, uc = fix_cond_shapes(model, c, uc)
-
-    if not hasattr(opt, 'H'):
-        opt.H = 256
-        opt.W = 256
-        # 最后resize为(1920, 1080)
-        print('no------'*10)
-    shape = [opt.C, opt.H // opt.factor, opt.W // opt.factor]    # fit the adapter feature
-
-    if (opt.bsize//2)*2 != opt.bsize:
-        pdb.set_trace()
-
-    assert (opt.bsize//2)*2 == opt.bsize, 'bad batch size.'
-   
-    *_, ratios, samples = sampler.sample(
-        S=opt.steps,
-        conditioning=c,
-        batch_size=opt.bsize // 2,
-        shape=shape,
-        verbose=False,
-        unconditional_guidance_scale=opt.scale,
-        unconditional_conditioning=uc,
-        x_T=None,
-        features_adapter=adapter_features,
-        append_to_context=append_to_context,
-        cond_tau=opt.cond_tau,
-        loss_mode=loss_mode,  # need to be trained
-        **kwargs
-
-    )
-    assert samples != None, '?'
-    # print(len(ratios['alphas']), len(samples))
-    assert len(ratios['alphas']) == len(samples), 'Fatal: Something went wrong in plms'
-    
-    for i in range(len(samples)):
-        u = model.decode_first_stage(samples[i])
-        samples[i] = cond_model(torch.clamp((u + 1.) / 2., min=0., max=1.))
-
-    # seems no need to return an extra ratios matrix
-    return samples, ratios

@@ -726,7 +726,7 @@ class VideoMamba(nn.Module):
         intrinsic_encoder_ckpt = {}
         adapter_0_ckpt = {}
         adapter_1_ckpt = {}
-        pdb.set_trace()
+        # pdb.set_trace()
         for (k, v) in ckpt_weights.items():
             if k.startswith('backbone.croco_decoder'):
                 croco_decoder_ckpt[k[22+1:]] = v
@@ -741,7 +741,7 @@ class VideoMamba(nn.Module):
             else:
                 print(f'invalid key: {k}')
                 # raise ValueError('Invalid Keys!')
-        pdb.set_trace()
+        # pdb.set_trace()
         if len(croco_decoder_ckpt) != 0 and len(mamba_encoder_ckpt) != 0 and len(intrinsic_encoder_ckpt) != 0:
             load_state_dict(self.croco_decoder, croco_decoder_ckpt)
             load_state_dict(self.mamba_encoder, mamba_encoder_ckpt)
@@ -821,7 +821,6 @@ class VideoMamba(nn.Module):
                 symmetrize_batch=False, # False
                 return_views=False, # True
                 ):
-        pdb.set_trace()
         if len(context['video']) < 5:
             context = {k: v.unsqueeze(0) for (k,v) in context.items()}
 
@@ -830,7 +829,6 @@ class VideoMamba(nn.Module):
         assert h == w, f'width unequal to height: h = {h}, w = {w}'
         assert f == f_ and b == b_, (f'videos and intrinsics mismatched at the frame: (f, f_) = {(f, f_)}')
 
-        pdb.set_trace()
         intrinsic_embed = self.intrinsic_encoder(rearrange(context['intrinsics'], 'b f h w -> b (f h w)'))
         intrinsic_embed = rearrange(intrinsic_embed.reshape((b_, f_, self.enc_embed_dim)), 'b f e -> f b e')
         args_dict = {

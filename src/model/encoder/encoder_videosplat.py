@@ -2,6 +2,7 @@ import os.path
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Literal, Optional
+from torch import autocast
 
 import torch, pdb
 import torch.nn.functional as F
@@ -11,20 +12,15 @@ from torch import Tensor, nn
 
 from .backbone.croco.misc import transpose_to_landscape
 from .heads import head_factory
-from ...dataset.shims.bounds_shim import apply_bounds_shim
-from ...dataset.shims.normalize_shim import apply_normalize_shim
-from ...dataset.shims.patch_shim import apply_patch_shim
-from ...dataset.types import BatchedExample, DataShim
+
 from ...geometry.projection import sample_image_grid
 from ..types import Gaussians
 from .backbone import Backbone, BackboneCfg, get_backbone
 from .common.gaussian_adapter import GaussianAdapter, GaussianAdapterCfg, UnifiedGaussianAdapter
 from .encoder import Encoder
 from .encoder_noposplat import EncoderNoPoSplatCfg
-from .visualization.encoder_visualizer_epipolar_cfg import EncoderVisualizerEpipolarCfg
-
 from ..ldm import *
-from typing import NamedTuple
+
 
 
 inf = float('inf')
@@ -59,7 +55,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         # inference
         self.frame = args.frame
         self.cond_weight = args.cond_weight
-        self.batch = getattr(args, 'batch_size', None)
+        self.batch = getattr(args, 'batch_size', 1)
 
         self.pose_free = cfg.pose_free
 
@@ -180,7 +176,6 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
                     self.gaussian_param_head_sole
         """
 
-        pdb.set_trace()
         with torch.cuda.amp.autocast(enabled=False):
             # 原来noposplat的cross-attention思路是用第0帧查询后续所有帧
             # 在adapter forward中做'n b f p e -> b f (p n) e'
@@ -198,17 +193,20 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
 
             dec_feat, _ = self.backbone(context=context, return_views=True)
             mamba_feat = self.adapter_dict['model'][0](dec_feat)
-            ray_feat = self.adapter_dict['model'][1](rearrange(context['ray'], '(u c) h w -> u c h w', c=5)) # '(b c f) h w -> (b f) c h w'
+            with torch.inference_mode(), \
+                    self.sd_model.ema_scope(), \
+                    autocast('cuda'):
+                ray_feat = self.adapter_dict['model'][1](rearrange(context['ray'], '(f u) h w -> f u h w', f=self.frame)) # '(n c f) h w -> f (n c) h w'
 
-            # Add shape validation
-            assert len(mamba_feat) == len(ray_feat), "Feature list length mismatch"
-            features_adapter = [
-                self.cond_weight[0] * mamba_feat[i] + self.cond_weight[1] * ray_feat[i]
-                for i in range(len(mamba_feat))
-            ]
-
-            x_samples = diffusion_inference(self.sd_opt, self.sd_model, features_adapter, batch_size=self.batch * self.frame) # [b f c h w]
-
+                # Add shape validation
+                assert len(mamba_feat) == len(ray_feat), "Feature list length mismatch"
+                features_adapter = [
+                    self.cond_weight[0] * mamba_feat[i] + self.cond_weight[1] * ray_feat[i]
+                    for i in range(len(mamba_feat))
+                ]
+                # self.batch * self.frame
+                x_samples = diffusion_inference(self.sd_opt, self.sd_model, self.sampler, features_adapter, batch_size=1) # [b f c h w]
+        pdb.set_trace()
         return x_samples
 
     # 我倾向于这个会work
