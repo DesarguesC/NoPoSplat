@@ -206,7 +206,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
                 ]
                 # self.batch * self.frame
                 x_samples = diffusion_inference(self.sd_opt, self.sd_model, self.sampler, features_adapter, batch_size=1) # [b f c h w]
-        pdb.set_trace()
+        # pdb.set_trace()
         return x_samples
 
     # 我倾向于这个会work

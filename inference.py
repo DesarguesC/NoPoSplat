@@ -1,13 +1,14 @@
 import logging, yaml, os
 import os.path as osp
+import numpy as np
 from accelerate import Accelerator
-from basicsr.utils import (get_env_info, get_root_logger, get_time_str,
+from basicsr.utils import (tensor2img, get_env_info, get_root_logger, get_time_str,
                            scandir)
 from basicsr.utils.options import copy_opt_file, dict2str
 from einops import repeat, rearrange
 import argparse
 import hydra
-import torch
+import torch, cv2
 import torch.distributed as dist
 from datetime import datetime
 import wandb, pdb, itertools
@@ -182,6 +183,7 @@ def main(cfg_folder: str = './config'):
     output = encoder(A)
     pdb.set_trace()
     print(f'output.shape = {output.shape}')
+    cv2.imwrite('../Tools/imgs/1.jpg', np.uint8(tensor2img(output) * 255.))
 
 
 

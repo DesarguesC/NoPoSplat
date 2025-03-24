@@ -323,7 +323,7 @@ def diffusion_inference(opt, model, sampler, adapter_features, batch_size=1, app
     else:
         uc = None
 
-    pdb.set_trace()
+    # pdb.set_trace()
     c, uc = fix_cond_shapes(model, c, uc) # batch size of c ?
 
     c = torch.cat([c] * batch_size, 0)
@@ -347,7 +347,7 @@ def diffusion_inference(opt, model, sampler, adapter_features, batch_size=1, app
         append_to_context=append_to_context,
         cond_tau=opt.cond_tau,
     )
-    pdb.set_trace()
+    # pdb.set_trace()
     x_samples = model.decode_first_stage(samples_latents)
     x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
 
