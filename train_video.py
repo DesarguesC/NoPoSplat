@@ -172,11 +172,7 @@ def main(cfg_folder: str = './config'):
 
     # TODO: load data
     # pdb.set_trace()
-    train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame, cut_down_scale=1)
-    # accelerator = Accelerator()
-    # model, optimizer, training_dataloader, scheduler = accelerator.prepare(
-    #     model, optimizer, training_dataloader, scheduler
-    # )
+    train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame, cut_down_scale=10)
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(
@@ -208,11 +204,13 @@ def main(cfg_folder: str = './config'):
     model_sd.train()
 
     class ModelWrapper(torch.nn.Module):
-        def __init__(self, backbone, adapter_0, adapter_1):
+        def __init__(self, backbone, adapter_0, adapter_1, train_mamba=True):
             super().__init__()
             self.backbone = backbone
             self.adapter_0 = adapter_0
             self.adapter_1 = adapter_1
+
+            self.train_mamba = train_mamba
             
             # Add device verification
             # self.verify_devices()
@@ -225,21 +223,42 @@ def main(cfg_folder: str = './config'):
                 assert backbone_device == module_device, f"Device mismatch: backbone on {backbone_device}, {name} on {module_device}"
         
         def forward(self, x): # x: dec_feat
-            dec_feat, _ = self.backbone(context=x, return_views=True)
-            mamba_feat = self.adapter_0(dec_feat)
-            ray_feat = self.adapter_1(rearrange(x['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
-            
-            # Add shape validation
-            assert len(mamba_feat) == len(ray_feat), "Feature list length mismatch"
-            features_adapter = [
-                opt.cond_weight[0] * mamba_feat[i] + opt.cond_weight[1] * ray_feat[i] 
-                for i in range(len(mamba_feat))
-            ]
-            
-            return features_adapter
+            if self.train_mamba:
+                dec_feat, _ = self.backbone(context=x, return_views=True)
+                mamba_feat = self.adapter_0(dec_feat)
+                ray_feat = self.adapter_1(rearrange(x['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
+
+                # Add shape validation
+                assert len(mamba_feat) == len(ray_feat), "Feature list length mismatch"
+                features_adapter = [
+                    opt.cond_weight[0] * mamba_feat[i] + opt.cond_weight[1] * ray_feat[i]
+                    for i in range(len(mamba_feat))
+                ]
+
+                return features_adapter
+            else:
+                # wrapper_model([dec_feature, data])
+                assert isinstance(x, list) and len(x) == 2
+                dec_feat, data = x[0], x[1]
+                mamba_feat = self.adapter_0(dec_feat)
+                ray_feat = self.adapter_1(rearrange(data['ray'], 'b (c f) h w -> (b f) c h w', f=opt.frame))
+
+                # Add shape validation
+                assert len(mamba_feat) == len(ray_feat), "Feature list length mismatch"
+                features_adapter = [
+                    opt.cond_weight[0] * mamba_feat[i] + opt.cond_weight[1] * ray_feat[i]
+                    for i in range(len(mamba_feat))
+                ]
+
+                return features_adapter
     
     # Check and fix device placement
-    v2x_wrapper = ModelWrapper(encoder.backbone, encoder.adapter_dict['model'][0], encoder.adapter_dict['model'][1])
+    v2x_wrapper = ModelWrapper(
+        encoder.backbone,
+        encoder.adapter_dict['model'][0],
+        encoder.adapter_dict['model'][1],
+        train_mamba = opt.train_mamba
+    )
 
     v2x_generator = torch.nn.parallel.DistributedDataParallel(
         v2x_wrapper,
@@ -300,13 +319,15 @@ def main(cfg_folder: str = './config'):
             with torch.no_grad():
                 #   # Clear cache at the start of each iteration
                 # video = rearrange(data['video'], 'b f c h w -> (b f) c h w')
+                if not opt.train_mamba:
+                    dec_feat = encoder.backbone(data)
                 c = model_sd.get_learned_conditioning([opt.prompt])
                 c = repeat(c, '1 ... -> b ...', b = (opt.frame * opt.batch_size // world_size))
                 vehicle = rearrange(data['vehicle'], 'b f c h w -> (b f) c h w')
                 z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
 
-            adapter_features = v2x_generator(data)
+            adapter_features = v2x_generator([dec_feat, data] if not opt.train_mamba else data)
             l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
 
             l_pixel.backward()  # Backpropagate the loss

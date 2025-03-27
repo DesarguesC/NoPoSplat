@@ -49,6 +49,8 @@ class Options(NamedTuple):
     decoder_weights_path: str = './pretrained_weights/mixRe10kDl3dv.ckpt'
     device: str = 'cuda'  # for parallel, automatically locate
 
+    train_mamba: bool = False
+
 class Train_Options(Options):
     train_mode: bool = True
     prompt: str = 'a driving scene inside the car with high quality, 4K, highly detailed'
@@ -71,6 +73,8 @@ class Train_Options(Options):
     gpus: list = [0,1] # gpu idx
     local_rank: int = 0
     launcher: str = 'pytorch'
+
+
 
 
 """
@@ -332,7 +336,10 @@ def diffusion_inference(opt, model, sampler, adapter_features, batch_size=1, app
     if not hasattr(opt, 'H'):
         opt.H = 256
         opt.W = 256
-    shape = [batch_size, opt.C, opt.H // opt.f, opt.W // opt.f]
+
+    pdb.set_trace()
+    shape = [batch_size, opt.C, opt.H // opt.f, opt.W // opt.f] # check adapter_features: nan?
+
 
     samples_latents, _ = sampler.sample(
         S=opt.steps,

@@ -168,29 +168,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
         visualization_dump: Optional[dict] = None,
     ):
 
-        """
-            Available:
-                center-head:
-                    self.downstream_head ~ self.head_sole
-                param-head:
-                    self.gaussian_param_head_sole
-        """
-
         with torch.cuda.amp.autocast(enabled=False):
-            # 原来noposplat的cross-attention思路是用第0帧查询后续所有帧
-            # 在adapter forward中做'n b f p e -> b f (p n) e'
-            # feature_dec = self.adapter_list[0](ray_maps['pos'], dec_feature)
-            # feature_ray = self.adapter_list[1](ray_maps['dir'], dec_feature) # 也可以直接把dir做encode之后拼到sd的backbone上
-            #
-            # adapter_feature = [feature_dec, feature_ray] # List[list]
-            # L = len(adapter_feature[0])
-            # concat_feat = [
-            #     cond_weight[0] * adapter_feature[0][i] + cond_weight[1] * adapter_feature[1][i]
-            #         for i in range(L)
-            # ]
-            # # b = 1 when inference, b <- b * f
-            # concat_feat = [u.squeeze(0) for u in concat_feat]
-
             dec_feat, _ = self.backbone(context=context, return_views=True)
             mamba_feat = self.adapter_dict['model'][0](dec_feat)
             with torch.inference_mode(), \
@@ -205,6 +183,7 @@ class EncoderVideoSplat(Encoder[EncoderNoPoSplatCfg]):
                     for i in range(len(mamba_feat))
                 ]
                 # self.batch * self.frame
+                pdb.set_trace()
                 x_samples = diffusion_inference(self.sd_opt, self.sd_model, self.sampler, features_adapter, batch_size=1) # [b f c h w]
         # pdb.set_trace()
         return x_samples

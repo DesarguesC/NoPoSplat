@@ -195,6 +195,7 @@ class PLMSSampler(object):
         b, *_, device = *x.shape, x.device
 
         def get_model_output(x, t):
+            # pdb.set_trace()
             if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
                 e_t = self.model.apply_model(x, t, c, features_adapter=features_adapter)
             else:
