@@ -518,6 +518,7 @@ def videomamba_base(img_size=(224,224), pretrained=False, **kwargs):
     device = kwargs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
     model.default_cfg = _cfg()
     if pretrained:
+        pdb.set_trace()
         print('load pretrained weights')
         state_dict = torch.load(_MODELS["videomamba_b16_in1k"], map_location=device)
         load_state_dict(model, state_dict, center=True)
@@ -567,7 +568,7 @@ def VideoMambaModel(
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    model = mambas[mamba_choice](num_frames=num_frames, img_size=img_size, **kwargs).cuda()
+    model = mambas[mamba_choice](num_frames=num_frames, img_size=img_size, pretrained=True, **kwargs).cuda()
     return model
 
 class CrocoDrcoder(nn.Module):
@@ -720,7 +721,7 @@ class VideoMamba(nn.Module):
 
     # xxx_weights: backbone..., adapter_0..., adapter_1...
     #       load_encoder_and_decoder(...)
-    def load_encoder_and_decoder(self, ckpt_weights): # only for inference step
+    def load_encoder_and_decoder(self, ckpt_weights, mamba_type: str = 'base'): # only for inference step
         croco_decoder_ckpt = {}
         mamba_encoder_ckpt = {}
         intrinsic_encoder_ckpt = {}
@@ -741,11 +742,24 @@ class VideoMamba(nn.Module):
             else:
                 print(f'invalid key: {k}')
                 # raise ValueError('Invalid Keys!')
-        # pdb.set_trace()
-        if len(croco_decoder_ckpt) != 0 and len(mamba_encoder_ckpt) != 0 and len(intrinsic_encoder_ckpt) != 0:
-            load_state_dict(self.croco_decoder, croco_decoder_ckpt)
-            load_state_dict(self.mamba_encoder, mamba_encoder_ckpt)
-            load_state_dict(self.intrinsic_encoder, intrinsic_encoder_ckpt)
+        pdb.set_trace()
+
+        if len(mamba_encoder_ckpt) == 0:
+            # w/o mamba training
+            mamba_type = 'videomamba_' + \
+                         ('b' if mamba_type=='base' else 'm' if mamba_type=='middle' else 's' if mamba_type=='small' else 't') \
+                         + '16_in1k'
+            default_mamba_ckpt_path = _MODELS[mamba_type]
+
+            assert os.path.exists(default_mamba_ckpt_path)
+            mamba_encoder_ckpt = torch.load(default_mamba_ckpt_path)
+
+
+
+        # if len(croco_decoder_ckpt) != 0 and len(mamba_encoder_ckpt) != 0 and len(intrinsic_encoder_ckpt) != 0:
+        load_state_dict(self.croco_decoder, croco_decoder_ckpt)
+        load_state_dict(self.mamba_encoder, mamba_encoder_ckpt)
+        load_state_dict(self.intrinsic_encoder, intrinsic_encoder_ckpt)
         # delete ckpt_weights outside,  after adapters loaded
 
         return adapter_0_ckpt, adapter_1_ckpt

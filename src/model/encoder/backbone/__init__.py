@@ -19,7 +19,7 @@ BACKBONES: dict[str, Backbone[Any]] = {
 BackboneCfg = BackboneResnetCfg | BackboneDinoCfg | BackboneCrocoCfg | BackboneMambaCfg
 
 
-def get_backbone(cfg: BackboneCfg, d_in: int = 3, args = None) -> nn.Module:
+def get_backbone(cfg: BackboneCfg, d_in: int = 3, args = None, pretrained: bool = True) -> nn.Module:
     # backbone = BACKBONES[cfg.name]
     # keys = inspect.signature(backbone.__init__).parameters
     # pdb.set_trace()
