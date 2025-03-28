@@ -72,7 +72,7 @@ model:
         version: ../Tools/openai/clip-vit-large-patch14
 
 logger:
-  print_freq: 10
+  print_freq: 50
   save_checkpoint_freq: !!float 1e4
   use_tb_logger: true
   wandb:

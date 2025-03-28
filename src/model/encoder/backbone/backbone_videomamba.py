@@ -518,7 +518,7 @@ def videomamba_base(img_size=(224,224), pretrained=False, **kwargs):
     device = kwargs.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
     model.default_cfg = _cfg()
     if pretrained:
-        pdb.set_trace()
+        # pdb.set_trace()
         print('load pretrained weights')
         state_dict = torch.load(_MODELS["videomamba_b16_in1k"], map_location=device)
         load_state_dict(model, state_dict, center=True)
@@ -835,11 +835,19 @@ class VideoMamba(nn.Module):
                 symmetrize_batch=False, # False
                 return_views=False, # True
                 ):
-        if len(context['video']) < 5:
-            context = {k: v.unsqueeze(0) for (k,v) in context.items()}
 
-        b, _, f, h, w = context['video'].shape
-        b_, f_, h_, w_ = context['intrinsics'].shape
+        if len(context['video'].shape) < 5:
+            context = {k:v.unsqueeze(0) for (k,v) in context.items()}
+        if len(context['video'].shape) < 5:
+            b, f, h, w = context['video'].shape
+        else:
+            b, _, f, h, w = context['video'].shape
+
+        if len(context['intrinsics'].shape) < 5:
+            b_, f_, h_, w_ = context['intrinsics'].shape
+        else:
+            b_, _, f_, h_, w_ = context['intrinsics'].shape
+
         assert h == w, f'width unequal to height: h = {h}, w = {w}'
         assert f == f_ and b == b_, (f'videos and intrinsics mismatched at the frame: (f, f_) = {(f, f_)}')
 

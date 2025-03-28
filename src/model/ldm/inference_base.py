@@ -12,6 +12,15 @@ from .modules.extra_condition.api import ExtraCondition
 from .util import fix_cond_shapes, load_model_from_config, read_state_dict
 # import mmpose
 
+from torch import nn
+import torch.nn.init as init
+
+def weights_init_normal(m):
+    if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):  # 只对卷积层和全连接层初始化
+        init.normal_(m.weight, mean=0.0, std=0.02)  # 使用均值 0，标准差 0.02 的正态分布
+        if m.bias is not None:
+            init.constant_(m.bias, 0)  # 将偏置初始化为 0
+
 DEFAULT_NEGATIVE_PROMPT = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, ' \
                           'fewer digits, cropped, worst quality, low quality'
 
@@ -285,7 +294,7 @@ def get_t2i_adapter_models(opt):
 def get_cond_adapter(cond_type: ExtraCondition, frame = 20, device='cuda'):
     # TODO: directly return adapter models
     if cond_type == ExtraCondition.ray:
-        return Adapter_light(
+        model = Adapter_light(
             frame = frame,
             cin = 5 * 13,  # frames * 13 * 5 [camera ray map channel]
             # NEW: concatenate 'frame' with 'batch'
@@ -293,7 +302,7 @@ def get_cond_adapter(cond_type: ExtraCondition, frame = 20, device='cuda'):
             nums_rb = 20,
         ).to(device)
     elif cond_type == ExtraCondition.feature:
-        return Adapter(
+        model = Adapter(
             frame = frame,
             cin = 13, # * frame
             channels=[320, 640, 1280, 1280],
@@ -301,6 +310,9 @@ def get_cond_adapter(cond_type: ExtraCondition, frame = 20, device='cuda'):
         ).to(device)
     else:
         raise NotImplementedError('Unrecognized Type')
+
+    model = model.apply(weights_init_normal)
+    return model
 
 def get_latent_adapter(opt, train_mode: bool = True, cond_type: List[ExtraCondition] = [None], device = 'cuda'):
     # TODO: refer to app.py to check the usage when calling.
@@ -310,11 +322,6 @@ def get_latent_adapter(opt, train_mode: bool = True, cond_type: List[ExtraCondit
     if len(adapter['cond_weight']) != len(adapter['model']):
         adapter['cond_weight'] = [1. for i in range(len(adapter['model']))]
     ckpt_path_list = getattr(opt, 'adapter_ckpt_path', [None, None])
-    # if not train_mode or len(ckpt_path_list) < len(adapter['model']):
-    #     adapter['model'] = [
-    #         adapter['model'][i].load_state_dict(torch.load(ckpt_path_list[i]))
-    #         for i in range(len(adapter['model']))
-    #     ]
 
     return adapter # dict_keys(['cond_weight', 'model'])
 
