@@ -138,8 +138,9 @@ class Adapter(nn.Module):
             for j in range(self.nums_rb):
                 idx = i * self.nums_rb + j
                 x = self.body[idx](x)
-            features.append(x)
-        # pdb.set_trace()
+            mean = x.mean(dim=(2, 3), keepdim=True)
+            std = x.std(dim=(2, 3), keepdim=True)
+            features.append( (x - mean) / (std + 1e-8) )
         return features
 
     def initialize_weights(self):
@@ -316,8 +317,9 @@ class Adapter_light(nn.Module):
 
         for i in range(len(self.channels)):
             x = self.body[i](x)
-            features.append(x)
-        # pdb.set_trace()
+            mean = x.mean(dim=(2,3), keepdim=True)
+            std = x.std(dim=(2,3), keepdim=True)
+            features.append( (x-mean) / (std + 1e-8) )
         return features
 
 

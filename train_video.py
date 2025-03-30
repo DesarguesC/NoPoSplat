@@ -172,7 +172,7 @@ def main(cfg_folder: str = './config'):
 
     # TODO: load data
     # pdb.set_trace()
-    train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame, cut_down_scale=10)
+    train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame, cut_down_scale=50)
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(
