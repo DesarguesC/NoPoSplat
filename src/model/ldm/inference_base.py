@@ -344,7 +344,7 @@ def diffusion_inference(opt, model, sampler, adapter_features, batch_size=1, app
         opt.H = 256
         opt.W = 256
 
-    pdb.set_trace()
+    # pdb.set_trace()
     shape = [batch_size, opt.C, opt.H // opt.f, opt.W // opt.f] # check adapter_features: nan?
 
 
