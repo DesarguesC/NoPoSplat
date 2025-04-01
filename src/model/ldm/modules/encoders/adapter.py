@@ -114,6 +114,9 @@ class Adapter(nn.Module):
         self.channels = channels
         self.nums_rb = nums_rb
         self.body = []
+        self.width_list = [32, 16, 8, 4]
+        self.proj_list = [torch.nn.Parameter(torch.randn(u, u)).cuda() for u in self.width_list]
+        self.norm = [LayerNorm([u, u]).cuda() for u in self.width_list]
         for i in range(len(channels)):
             for j in range(nums_rb):
                 if (i != 0) and (j == 0):
@@ -123,6 +126,7 @@ class Adapter(nn.Module):
                     self.body.append(
                         ResnetBlock(channels[i], channels[i], down=False, ksize=ksize, sk=sk, use_conv=use_conv))
         self.body = nn.ModuleList(self.body)
+        # pdb.set_trace()
         if train_mode:
             self.initialize_weights()
 
@@ -134,13 +138,13 @@ class Adapter(nn.Module):
         x = self.conv_in(x)
         # extract features
         features = []
+        # pdb.set_trace()
         for i in range(len(self.channels)):
             for j in range(self.nums_rb):
                 idx = i * self.nums_rb + j
                 x = self.body[idx](x)
-            mean = x.mean(dim=(2, 3), keepdim=True)
-            std = x.std(dim=(2, 3), keepdim=True)
-            features.append( (x - mean) / (std + 1e-8) )
+            x = self.norm[i]( x @ self.proj_list[i] )
+            features.append( x )
         return features
 
     def initialize_weights(self):
@@ -299,6 +303,9 @@ class Adapter_light(nn.Module):
         self.channels = channels
         self.nums_rb = nums_rb
         self.body = []
+        self.width_list = [32, 16, 8, 4]
+        self.proj_list = [torch.nn.Parameter(torch.randn(u, u)).cuda() for u in self.width_list]
+        self.norm = [LayerNorm([u,u]).cuda() for u in self.width_list]
         for i in range(len(channels)):
             if i == 0:
                 # TODO: Here, the detail of the extractor
@@ -307,6 +314,7 @@ class Adapter_light(nn.Module):
             else:
                 self.body.append(
                     extractor(in_c=channels[i-1], inter_c=channels[i] // 4, out_c=channels[i], nums_rb=nums_rb, down=True))
+
         self.body = nn.ModuleList(self.body)
 
     def forward(self, x):
@@ -317,9 +325,8 @@ class Adapter_light(nn.Module):
 
         for i in range(len(self.channels)):
             x = self.body[i](x)
-            mean = x.mean(dim=(2,3), keepdim=True)
-            std = x.std(dim=(2,3), keepdim=True)
-            features.append( (x-mean) / (std + 1e-8) )
+            x = self.norm[i]( x @ self.proj_list[i] ) # normalization after projection
+            features.append( x )
         return features
 
 

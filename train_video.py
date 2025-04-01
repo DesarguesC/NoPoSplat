@@ -172,7 +172,7 @@ def main(cfg_folder: str = './config'):
 
     # TODO: load data
     # pdb.set_trace()
-    train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame, cut_down_scale=50)
+    train_dataset = V2XSeqDataset(root_path='../download/V2X-Seq/Sequential-Perception-Dataset/Full Dataset (train & val)', frame=opt.frame, cut_down_scale=1)
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     train_dataloader = torch.utils.data.DataLoader(
@@ -270,7 +270,7 @@ def main(cfg_folder: str = './config'):
     # optimizer
     # params = itertools.chain(model_video_mamba.parameters(), model_ad_ray.parameters(), model_ad_mamba_feat.parameters())
     optimizer = torch.optim.AdamW(v2x_generator.parameters(), lr=sd_config['training']['lr'])
-    experiments_root = osp.join('experiments', opt.name)
+    experiments_root = osp.join('experiments_more', opt.name)
     # resume state
     resume_state = load_resume_state(opt)
     
