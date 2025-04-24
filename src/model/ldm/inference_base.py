@@ -26,7 +26,7 @@ DEFAULT_NEGATIVE_PROMPT = 'longbody, lowres, bad anatomy, bad hands, missing fin
 
 class Options(NamedTuple):
     train_mode: bool = False
-    pretrained_weights: str = '../Tools/v2x_generator.pth'
+    pretrained_weights: str = '../Tools/8_1_单卡.pth' # 2_6_单卡.pth | v2x_2gpu.pth |
     outdir: str = './outputs/'
     sd_ckpt: str = '../download/v1-5-pruned.ckpt'
     prompt: str = 'a driving scene with high quality, 4K, highly detailed'
@@ -37,7 +37,7 @@ class Options(NamedTuple):
     vae_ckpt: str = None
     adapter_ckpt_path: List[str] = [None, None]
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-inference.yaml'
-    frame: int = 2 # TODO: debug -> Origin: 16
+    frame: int = 1 # TODO: debug -> Origin: 16
     mamba_size: str = 'base'
     H: int = 256 # default
     W: int = 256
@@ -63,11 +63,11 @@ class Options(NamedTuple):
 class Train_Options(Options):
     train_mode: bool = True
     prompt: str = 'a driving scene inside the car with high quality, 4K, highly detailed'
-    batch_size: int = 1 # TODO: debug
+    batch_size: int = 4 # TODO: debug
     # b64f20 out of memory
     epochs: int = 10000 # TODO: debug
-    frame: int = 2
-    num_workers: int = 16 # cpu cores * 2
+    frame: int = 8
+    num_workers: int = 60 # cpu cores * 2
     auto_resume: bool = True
     config: str = './src/model/ldm/configs/stable-diffusion/sd-v1-train.yaml'
     resume_state_path: str

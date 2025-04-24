@@ -29,6 +29,8 @@ from src.model.ldm import *
 from src.model.encoder import get_encoder
 # from src.model.model_wrapper import ModelWrapper
 
+exp_base_name = 'experiments_4_8_四卡'
+
 def cyan(text: str) -> str:
     return f"{Fore.CYAN}{text}{Fore.RESET}"
 
@@ -52,7 +54,7 @@ def mkdir_and_rename(path):
 def load_resume_state(opt):
     resume_state_path = None
     if opt.auto_resume:
-        state_path = osp.join('experiments', opt.name, 'training_states')
+        state_path = osp.join(exp_base_name, opt.name, 'training_states')
         if osp.isdir(state_path):
             states = list(scandir(state_path, suffix='state', recursive=False, full_path=False))
             if len(states) != 0:
@@ -270,7 +272,7 @@ def main(cfg_folder: str = './config'):
     # optimizer
     # params = itertools.chain(model_video_mamba.parameters(), model_ad_ray.parameters(), model_ad_mamba_feat.parameters())
     optimizer = torch.optim.AdamW(v2x_generator.parameters(), lr=sd_config['training']['lr'])
-    experiments_root = osp.join('experiments_more', opt.name)
+    experiments_root = osp.join(exp_base_name, opt.name)
     # resume state
     resume_state = load_resume_state(opt)
     
@@ -297,7 +299,6 @@ def main(cfg_folder: str = './config'):
         start_epoch = resume_state['epoch']
         current_iter = resume_state['iter']
 
-    # pdb.set_trace() # TODO: 找到爆显存的行
 
     # copy the yml file to the experiment root
     copy_opt_file(opt.config, experiments_root)
@@ -308,12 +309,12 @@ def main(cfg_folder: str = './config'):
     optimizer.zero_grad()
     # pdb.set_trace()
     # torch.cuda.empty_cache()
+    rank, world_size = get_dist_info()
+    print(f'rank = {rank}, world_size = {world_size}')
     for epoch in range(start_epoch, opt.epochs):
         train_dataloader.sampler.set_epoch(epoch)
         for _, data in enumerate(train_dataloader):
             current_iter += 1
-            # pdb.set_trace()
-            rank, world_size = get_dist_info()
             data = move_to_gpu(data)
             torch.cuda.empty_cache()
             with torch.no_grad():
@@ -322,12 +323,14 @@ def main(cfg_folder: str = './config'):
                 if not opt.train_mamba:
                     dec_feat = encoder.backbone(data)
                 c = model_sd.get_learned_conditioning([opt.prompt])
-                c = repeat(c, '1 ... -> b ...', b = (opt.frame * opt.batch_size // world_size))
+                c = repeat(c, '1 ... -> b ...', b = (opt.frame * opt.batch_size))
                 vehicle = rearrange(data['vehicle'], 'b f c h w -> (b f) c h w')
                 z = model_sd.encode_first_stage((vehicle * 2 - 1.).cuda(non_blocking=True)) # not ".to(device)"
                 z = model_sd.get_first_stage_encoding(z) # padding the noise
 
             adapter_features = v2x_generator([dec_feat, data] if not opt.train_mamba else data)
+            assert adapter_features[0].shape[0] == c.shape[0], \
+                f'adapter_features[0].shape = {adapter_features[0].shape}, c.shape = {c.shape}, f*b = {opt.frame * opt.batch_size}, world_size = {world_size}'
             l_pixel, loss_dict = model_sd(z, c=c, features_adapter=adapter_features)
 
             l_pixel.backward()  # Backpropagate the loss
